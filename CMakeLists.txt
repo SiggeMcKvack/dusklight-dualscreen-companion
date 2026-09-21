@@ -82,7 +82,12 @@ add_mod(dev.siggemckvack.dualscreen_companion
         src/companion/companion_dmap.cpp
         src/companion/companion_functional.cpp
         src/companion/companion_gfx.cpp
-        src/companion/companion_guide_stub.cpp
+        src/companion/companion_guide.cpp
+        src/guide/browser.cpp
+        src/guide/convert.cpp
+        src/guide/fetch.cpp
+        src/guide/image.cpp
+        src/guide/store.cpp
         src/companion/companion_hud.cpp
         src/companion/companion_icons.cpp
         src/companion/companion_pages.cpp
@@ -92,4 +97,15 @@ add_mod(dev.siggemckvack.dualscreen_companion
     MOD_JSON mod.json
 )
 target_include_directories(dev.siggemckvack.dualscreen_companion PRIVATE src/include)
+
+# The guide store's index is JSON (header-only nlohmann_json, same version Dusklight uses).
+if (NOT TARGET nlohmann_json::nlohmann_json)
+    include(FetchContent)
+    FetchContent_Declare(nlohmann_json
+            URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+            URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+            DOWNLOAD_EXTRACT_TIMESTAMP FALSE)
+    FetchContent_MakeAvailable(nlohmann_json)
+endif ()
+target_link_libraries(dev.siggemckvack.dualscreen_companion PRIVATE nlohmann_json::nlohmann_json)
 target_link_libraries(dev.siggemckvack.dualscreen_companion PRIVATE android log)

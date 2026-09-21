@@ -625,14 +625,10 @@ int visiblePages(int* o_pages) {
         o_pages[2] = PAGE_INVENTORY;
         return 3;
     }
-    // Guide reader not ported (needs the browser Activity); its tab only exists in the fork.
-    int count = 0;
     for (int i = 0; i < PAGE_COUNT; i++) {
-        if (i != PAGE_GUIDE) {
-            o_pages[count++] = i;
-        }
+        o_pages[i] = i;
     }
-    return count;
+    return PAGE_COUNT;
 }
 
 void nextPage() {

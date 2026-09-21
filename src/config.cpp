@@ -1,6 +1,7 @@
 #include "config.hpp"
 
 #include "dusk/settings.h"
+#include "dusk/guide/browser.hpp"
 
 #include "mods/service.hpp"
 #include "mods/svc/config.h"
@@ -10,10 +11,10 @@
 namespace dsc::config {
 namespace {
 
-ConfigVarHandle g_dualScreen = 0;
 ConfigVarHandle g_hudMode = 0;
 ConfigVarHandle g_haptics = 0;
 ConfigVarHandle g_fpsOnCompanion = 0;
+ConfigVarHandle g_guideEnabled = 0;
 
 const char* const kHudModes[] = {"Wii U style (HUD on bottom)", "3DS style (hearts + A/B on top)"};
 
@@ -22,14 +23,14 @@ void sync_from_config() {
     auto& s = dusk::getSettings();
     bool b = false;
     int64_t i = 0;
-    if (svc_config->get_bool(mod_ctx, g_dualScreen, &b) == MOD_OK) {
-        s.game.dualScreen.setValue(b);
-    }
     if (svc_config->get_int(mod_ctx, g_hudMode, &i) == MOD_OK) {
         s.game.dualScreenHudMode.setValue(i == 0 ? kDualHudCinematic : kDualHudFunctional);
     }
     if (svc_config->get_bool(mod_ctx, g_haptics, &b) == MOD_OK) {
         s.game.dualScreenHaptics.setValue(b);
+    }
+    if (svc_config->get_bool(mod_ctx, g_guideEnabled, &b) == MOD_OK) {
+        s.game.guideEnabled.setValue(b);
     }
     if (svc_config->get_bool(mod_ctx, g_fpsOnCompanion, &b) == MOD_OK) {
         // The host's overlay never knows corner 4; the companion just reads it.
@@ -75,15 +76,18 @@ ModResult add_bound(UiElementHandle panel, UiControlKind kind, const char* label
     return svc_ui->pane_add_control(mod_ctx, panel, &control, nullptr);
 }
 
-ModResult build_panel(ModContext*, UiElementHandle panel, void*, ModError*) {
-    ModResult r = add_bound(panel, UI_CONTROL_TOGGLE, "Second screen",
-        "Show the companion dashboard on the device's second display. Inert on single-screen "
-        "devices.",
-        g_dualScreen);
-    if (r != MOD_OK) {
-        return r;
+void on_open_browser(ModContext*, void*) {
+    if (!dusk::guide::open_browser(dusk::guide::kDefaultGuideUrl)) {
+        mods::log::warn("guide browser could not be opened");
     }
-    r = add_bound(panel, UI_CONTROL_DROPDOWN, "Layout",
+}
+
+bool browser_disabled(ModContext*, void*) {
+    return !dusk::getSettings().game.guideEnabled.getValue() || !dusk::guide::browser_available();
+}
+
+ModResult build_panel(ModContext*, UiElementHandle panel, void*, ModError*) {
+    ModResult r = add_bound(panel, UI_CONTROL_DROPDOWN, "Layout",
         "Wii U style moves the whole HUD to the bottom screen. 3DS style keeps hearts and the "
         "A/B buttons on the main screen and turns the bottom screen into a control surface.",
         g_hudMode);
@@ -95,17 +99,36 @@ ModResult build_panel(ModContext*, UiElementHandle panel, void*, ModError*) {
     if (r != MOD_OK) {
         return r;
     }
-    return add_bound(panel, UI_CONTROL_TOGGLE, "FPS counter on bottom screen",
+    r = add_bound(panel, UI_CONTROL_TOGGLE, "FPS counter on bottom screen",
         "Draw the frame-rate counter on the companion instead of the main screen.",
         g_fpsOnCompanion);
+    if (r != MOD_OK) {
+        return r;
+    }
+    r = add_bound(panel, UI_CONTROL_TOGGLE, "Walkthrough guide",
+        "Offline walkthrough reader on the bottom screen. Save pages with the in-app browser "
+        "below, or put browser-saved .html pages in the guides/import folder of the mod's data "
+        "directory.",
+        g_guideEnabled);
+    if (r != MOD_OK) {
+        return r;
+    }
+    UiControlDesc button = UI_CONTROL_DESC_INIT;
+    button.kind = UI_CONTROL_BUTTON;
+    button.label = "Get a guide (in-app browser)";
+    button.help_rml = "Opens zeldadungeon.net in an overlay on the main screen; the game keeps "
+                      "running. Save a walkthrough page and its chapters are imported for the reader.";
+    button.on_pressed = on_open_browser;
+    button.is_disabled = browser_disabled;
+    return svc_ui->pane_add_control(mod_ctx, panel, &button, nullptr);
 }
 
 }  // namespace
 
 bool init() {
-    if (!register_bool("dual_screen", true, g_dualScreen) ||
-        !register_int("hud_mode", 1, g_hudMode) || !register_bool("haptics", true, g_haptics) ||
-        !register_bool("fps_on_companion", false, g_fpsOnCompanion))
+    if (!register_int("hud_mode", 1, g_hudMode) || !register_bool("haptics", true, g_haptics) ||
+        !register_bool("fps_on_companion", false, g_fpsOnCompanion) ||
+        !register_bool("guide_enabled", true, g_guideEnabled))
     {
         mods::log::error("failed to register config vars");
         return false;

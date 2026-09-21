@@ -32,6 +32,12 @@ void shutdown();
 
 bool is_bootstrapped();
 
+// Game thread: device vibrator pulse (CompanionManager.vibrate); amplitude 0..1.
+void vibrate(uint32_t durationMs, float amplitude);
+
+// Game thread: show the guide browser overlay (GuideBrowser.open, which hops to the UI thread).
+bool open_guide_browser(const char* url);
+
 // Pending surface change since the last call (the taker owns the returned window reference).
 bool take_surface_change(SurfaceChange& out);
 // Game thread: call once the change from take_surface_change has been applied. A surface loss

@@ -11,6 +11,8 @@ import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.Log;
 import android.view.Display;
 
@@ -101,6 +103,7 @@ public final class CompanionManager
         }
         mActivity.getApplication().unregisterActivityLifecycleCallbacks(this);
         dismissPresentation();
+        GuideBrowser.shutdown();
     }
 
     /**
@@ -272,6 +275,31 @@ public final class CompanionManager
         };
         // ACTION_BATTERY_CHANGED is sticky: registering delivers the current state at once.
         mContext.registerReceiver(mBatteryReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+    }
+
+    // ---- haptics (called from native on the game thread) ----
+
+    private static Vibrator sVibrator;
+
+    /** Device vibrator pulse; amplitude 1..255. Safe from any thread. */
+    public static void vibrate(Context context, int durationMs, int amplitude) {
+        try {
+            if (sVibrator == null) {
+                sVibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+            }
+            if (sVibrator == null || !sVibrator.hasVibrator() || durationMs <= 0) {
+                return;
+            }
+            final int amp = Math.max(1, Math.min(255, amplitude));
+            if (sVibrator.hasAmplitudeControl()) {
+                sVibrator.vibrate(VibrationEffect.createOneShot(durationMs, amp));
+            } else {
+                sVibrator.vibrate(VibrationEffect.createOneShot(durationMs,
+                        VibrationEffect.DEFAULT_AMPLITUDE));
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "vibrate failed", e);
+        }
     }
 
     private static native void nativeDisplayAvailable(boolean available);

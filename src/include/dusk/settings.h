@@ -29,6 +29,8 @@ struct ConfigVar {
 
 struct Settings {
     struct {
+        // Always on: the mod's whole purpose; disable the mod instead. Still gated at runtime
+        // by whether a second display is actually present.
         ConfigVar<bool> dualScreen{true};
         ConfigVar<int> dualScreenHudMode{kDualHudFunctional};
         ConfigVar<bool> dualScreenSwap{false};

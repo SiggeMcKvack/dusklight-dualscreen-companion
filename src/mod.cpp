@@ -7,6 +7,7 @@
 #include "dusk/companion.h"
 #include "dusk/dualscreen.h"
 #include "dusk/game_access.h"
+#include "dusk/guide/store.hpp"
 #include "dusk/main.h"
 #include "dusk/settings.h"
 #include "dusk/version.hpp"
@@ -23,9 +24,9 @@
 #include "d/d_com_inf_game.h"
 #include "d/d_meter2_info.h"
 #include "dolphin/dvd.h"
-#include "dolphin/pad.h"
 
 #include <cstring>
+#include <filesystem>
 
 DEFINE_MOD();
 IMPORT_SERVICE(LogService, svc_log);
@@ -54,21 +55,11 @@ bool isRegionPal() {
 }  // namespace dusk
 
 namespace aurora::device {
-// Frames of pad-0 rumble still owed; ticked in mod_update.
-static int s_rumbleFrames = 0;
-
-void rumble(uint16_t, uint16_t, uint16_t durationMs) noexcept {
-    const int frames = static_cast<int>((durationMs + 15) / 16);
-    if (frames > s_rumbleFrames) {
-        s_rumbleFrames = frames;
-    }
-    PADControlMotor(0, PAD_MOTOR_RUMBLE);
-}
-
-static void tickRumble() {
-    if (s_rumbleFrames > 0 && --s_rumbleFrames == 0) {
-        PADControlMotor(0, PAD_MOTOR_STOP);
-    }
+// The fork's haptics are the device vibrator (aurora opens SDL's VIBRATOR_SERVICE haptic), not
+// the controller motor; same strength mix as aurora, routed through the Java side.
+void rumble(uint16_t lowFreq, uint16_t highFreq, uint16_t durationMs) noexcept {
+    const float mixed = static_cast<float>(lowFreq) * 0.6f + static_cast<float>(highFreq) * 0.4f;
+    dsc::jni::vibrate(durationMs, mixed / 65535.0f);
 }
 }  // namespace aurora::device
 
@@ -124,7 +115,6 @@ void run_companion_frame() {
         dMeter2Info_setMapStatus(MAP_STATUS_FIELD_MAP_WARP);
     }
     dusk::companion::flushQueuedSounds();
-    aurora::device::tickRumble();
 }
 
 }  // namespace
@@ -151,6 +141,15 @@ MOD_EXPORT ModResult mod_initialize(ModError* error) {
     }
     if (!dsc::config::init()) {
         return mods::set_error(error, MOD_ERROR, "failed to set up configuration");
+    }
+    const char* dataDir = nullptr;
+    if (svc_host->data_dir(mod_ctx, &dataDir) == MOD_OK && dataDir != nullptr) {
+        dusk::guide::set_guides_root(std::filesystem::path(dataDir) / "guides");
+        if (!dusk::guide::ensure_dirs()) {
+            mods::log::warn("could not create the guide store under {}", dataDir);
+        }
+    } else {
+        mods::log::warn("no data directory; the guide reader is unavailable");
     }
     return MOD_OK;
 }

@@ -6,8 +6,9 @@
 
 A [Dusklight](https://github.com/TwilitRealm/dusklight) mod that puts a companion dashboard on the
 second screen of dual-screen Android handhelds (developed and tested on the AYN Thor): HUD status strip, hearts,
-button cluster, interactive map (pan/pinch), items, quest and collection pages, touch item buttons,
-warp and transform buttons, screen dimming in step with the main screen.
+button cluster, interactive map (pan/pinch), items, quest and collection pages, an offline walkthrough
+reader with an in-app browser to fetch guides, touch item buttons, warp and transform buttons, screen
+dimming in step with the main screen.
 
 It is a port of the dual-screen companion from the [igawa6/dusklight](https://github.com/igawa6/dusklight)
 fork into a **pure mod**: no changes to Dusklight itself. The fork's game-source edits are replaced by
@@ -42,10 +43,10 @@ into Dusklight's `mods/` folder (with a shared data folder: `adb push build/mods
 
 ## Settings (Mods panel)
 
-- **Second screen** — on/off.
 - **Layout** — *Wii U style* (whole HUD on the bottom screen) or *3DS style* (hearts and A/B stay on
   the main screen, the bottom screen becomes a control surface).
-- **Haptic feedback**, **FPS counter on bottom screen**.
+- **Haptic feedback**, **FPS counter on bottom screen**, **Walkthrough guide** (+ *Get a guide* opens
+  the in-app browser).
 
 ## How it works
 
@@ -67,8 +68,9 @@ into Dusklight's `mods/` folder (with a shared data folder: `adb push build/mods
 
 ## Differences from the fork
 
-- **No guide reader / browser** (needs an Activity in the manifest) and **no swap-screens** (needs a
-  launcher Activity).
+- **No swap-screens** (needs a launcher Activity). The guide reader and its in-app browser are
+  ported; the import worker does not fetch images over HTTP (the browser hands them over when it
+  saves a page).
 - **Slot I/II** are not real item buttons 2/3 (that is a `daAlink_c` layout change across the game).
   A slot press temporarily parks the slot's item on X (slot I) / Y (slot II) and holds that button;
   the original binding is restored on release. X/Y show the slot's item while held.

@@ -1,6 +1,9 @@
 #include "jni_bridge.hpp"
 #include "present.hpp"
 
+#include "dusk/guide/fetch.hpp"
+#include "dusk/guide/store.hpp"
+
 #include "mods/service.hpp"
 #include "mods/svc/hook.hpp"
 #include "mods/svc/log.hpp"
@@ -71,6 +74,7 @@ jobject g_activity = nullptr;   // global ref
 jobject g_loader = nullptr;     // global ref (InMemoryDexClassLoader)
 jclass g_viewClass = nullptr;   // global ref
 jclass g_managerClass = nullptr;
+jclass g_browserClass = nullptr;
 jobject g_manager = nullptr;    // global ref
 
 // ---- natives (UI thread; cheap, no services) ----
@@ -111,6 +115,23 @@ void JNICALL native_pinch(JNIEnv*, jclass, jfloat factor) {
     if (factor > 0.0f) {
         g_pinch *= factor;
     }
+}
+
+// ---- guide browser natives (UI thread) ----
+
+jstring JNICALL native_guides_root(JNIEnv* env, jclass) {
+    std::string path;
+    try {
+        path = dusk::guide::guides_root().string();
+    } catch (...) {
+        path.clear();
+    }
+    return env->NewStringUTF(path.c_str());
+}
+
+void JNICALL native_guides_import(JNIEnv*, jclass) {
+    // Kicks the import worker; idempotent while one is running.
+    dusk::guide::begin_import();
 }
 
 void JNICALL native_display_available(JNIEnv*, jclass, jboolean available) {
@@ -306,6 +327,15 @@ bool bind_natives(JNIEnv* env) {
     {
         return false;
     }
+    const JNINativeMethod browserMethods[] = {
+        {"nativeGuidesRoot", "()Ljava/lang/String;", reinterpret_cast<void*>(native_guides_root)},
+        {"nativeGuidesImport", "()V", reinterpret_cast<void*>(native_guides_import)},
+    };
+    if (env->RegisterNatives(g_browserClass, browserMethods, 2) != JNI_OK ||
+        check_exception(env, "RegisterNatives GuideBrowser"))
+    {
+        return false;
+    }
     return true;
 }
 
@@ -346,6 +376,10 @@ void release_java_refs(JNIEnv* env) {
         env->DeleteGlobalRef(g_managerClass);
         g_managerClass = nullptr;
     }
+    if (g_browserClass != nullptr) {
+        env->DeleteGlobalRef(g_browserClass);
+        g_browserClass = nullptr;
+    }
     if (g_loader != nullptr) {
         env->DeleteGlobalRef(g_loader);
         g_loader = nullptr;
@@ -373,13 +407,16 @@ bool bootstrap(JNIEnv* env) {
 
     jclass viewClass = load_class(env, g_loader, "CompanionView");
     jclass managerClass = load_class(env, g_loader, "CompanionManager");
-    if (viewClass == nullptr || managerClass == nullptr) {
+    jclass browserClass = load_class(env, g_loader, "GuideBrowser");
+    if (viewClass == nullptr || managerClass == nullptr || browserClass == nullptr) {
         return false;
     }
     g_viewClass = static_cast<jclass>(env->NewGlobalRef(viewClass));
     g_managerClass = static_cast<jclass>(env->NewGlobalRef(managerClass));
+    g_browserClass = static_cast<jclass>(env->NewGlobalRef(browserClass));
     env->DeleteLocalRef(viewClass);
     env->DeleteLocalRef(managerClass);
+    env->DeleteLocalRef(browserClass);
 
     return bind_natives(env) && start_manager(env);
 }
@@ -442,6 +479,9 @@ void shutdown() {
             if (g_managerClass != nullptr) {
                 env->UnregisterNatives(g_managerClass);
             }
+            if (g_browserClass != nullptr) {
+                env->UnregisterNatives(g_browserClass);
+            }
             check_exception(env, "UnregisterNatives");
             release_java_refs(env);
             if (g_threadAttachedByUs) {
@@ -467,9 +507,52 @@ void shutdown() {
     g_bootstrapped.store(false);
     g_vm.store(nullptr);
 }
+// (Method ids cached in vibrate() are per-class; the library is reloaded fresh on re-enable,
+// which resets the static.)
 
 bool is_bootstrapped() {
     return g_bootstrapped.load() && g_manager != nullptr;
+}
+
+void vibrate(uint32_t durationMs, float amplitude) {
+    if (!is_bootstrapped() || g_managerClass == nullptr || durationMs == 0) {
+        return;
+    }
+    JNIEnv* env = attach_game_thread();
+    if (env == nullptr) {
+        return;
+    }
+    static jmethodID method = nullptr;
+    if (method == nullptr) {
+        method = env->GetStaticMethodID(
+            g_managerClass, "vibrate", "(Landroid/content/Context;II)V");
+        if (check_exception(env, "CompanionManager.vibrate lookup") || method == nullptr) {
+            return;
+        }
+    }
+    const int amp = static_cast<int>(amplitude * 255.0f + 0.5f);
+    env->CallStaticVoidMethod(g_managerClass, method, g_activity, static_cast<jint>(durationMs),
+        static_cast<jint>(amp < 1 ? 1 : (amp > 255 ? 255 : amp)));
+    check_exception(env, "CompanionManager.vibrate");
+}
+
+bool open_guide_browser(const char* url) {
+    if (!is_bootstrapped() || g_browserClass == nullptr) {
+        return false;
+    }
+    JNIEnv* env = attach_game_thread();
+    if (env == nullptr) {
+        return false;
+    }
+    jmethodID open = env->GetStaticMethodID(
+        g_browserClass, "open", "(Landroid/app/Activity;Ljava/lang/String;)V");
+    if (check_exception(env, "GuideBrowser.open lookup") || open == nullptr) {
+        return false;
+    }
+    jstring jurl = env->NewStringUTF(url);
+    env->CallStaticVoidMethod(g_browserClass, open, g_activity, jurl);
+    env->DeleteLocalRef(jurl);
+    return !check_exception(env, "GuideBrowser.open");
 }
 
 bool take_surface_change(SurfaceChange& out) {

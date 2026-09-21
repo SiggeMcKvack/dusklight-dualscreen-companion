@@ -71,9 +71,15 @@ into Dusklight's `mods/` folder (with a shared data folder: `adb push build/mods
 - **No swap-screens** (needs a launcher Activity). The guide reader and its in-app browser are
   ported; the import worker does not fetch images over HTTP (the browser hands them over when it
   saves a page).
-- **Slot I/II** are not real item buttons 2/3 (that is a `daAlink_c` layout change across the game).
-  A slot press temporarily parks the slot's item on X (slot I) / Y (slot II) and holds that button;
-  the original binding is restored on release. X/Y show the slot's item while held.
+- **Slot I/II are routed through X and Y.** In the fork the two extra touch buttons are real item
+  buttons 2/3; that needs changes to Link's own code (wider button masks, renumbered button bits,
+  every "two item buttons" loop in `daAlink_c`) that a mod cannot make. In this mod a slot press
+  *exchanges* the slot's
+  item with the X button (slot I) or the Y button (slot II), presses that button, and leaves the
+  item there; the item that was on X/Y takes the slot. Pressing the slot again swaps them back.
+  So X/Y change under you when you use a slot, and worn items (iron boots, held boomerang, lantern)
+  stay equipped on X/Y rather than on the slot. Ooccoo's quick-use is the one exception: her
+  binding is put back automatically once the warp starts.
 - The vessel-of-light glow animates per frame rather than per game tick.
 
 ## License

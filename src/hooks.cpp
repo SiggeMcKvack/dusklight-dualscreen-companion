@@ -22,6 +22,8 @@
 #include "d/actor/d_a_alink.h"
 #include "d/actor/d_a_player.h"
 #include "d/d_meter_HIO.h"
+#include "d/d_msg_object.h"
+#include "d/d_save.h"
 #include "f_op/f_op_scene_mng.h"
 #include "m_Do/m_Do_controller_pad.h"
 
@@ -53,6 +55,8 @@ DEFINE_HOOK(&renderingAmap_c::getPlayerCursorSize, AmapPlayerCursorSize);
 DEFINE_HOOK(&renderingAmap_c::getRestartCursorSize, AmapRestartCursorSize);
 DEFINE_HOOK(&map_render_size_for, MapRenderSizeFor);
 DEFINE_HOOK(&mDoCPd_c::read, PadRead);
+DEFINE_HOOK(&dComIfGp_setSelectItem, SetSelectItem);
+DEFINE_HOOK(&dMsgObject_c::setSmellTypeLocal, SetSmellType);
 DEFINE_HOOK(&fopScnM_ChangeReq, SceneChangeReq);
 DEFINE_HOOK(&daAlink_c::execute, LinkExecute);
 
@@ -462,6 +466,42 @@ void on_map_render_size_post(ModContext*, void*, void* retval, void*) {
     size.y = boost(size.y);
 }
 
+// ---- companion slot I lives in select index 2 (fork d_com_inf_game.cpp / d_msg_object.cpp) ----
+
+// Retail's index 2 is the Wii wolf down-button: dComIfGp_setSelectItem stores the RAW SLOT NUMBER
+// there, which the companion's slot I (an ordinary item binding) then shows as whatever item
+// that number is (rupees). Resolve it like the other item buttons instead.
+HookAction on_set_select_item_pre(ModContext*, void* args, void*, void*) {
+    const int idx = ::mods::arg<int>(args, 0);
+    if (idx != SELECT_ITEM_DOWN) {
+        return HOOK_CONTINUE;
+    }
+    if (dComIfGs_getSelectItemIndex(idx) != 0xFF) {
+        const u8 item = dComIfGs_getItem(dComIfGs_getSelectItemIndex(idx), false);
+        g_dComIfG_gameInfo.play.setSelectItem(idx, item);
+        if (item == dItemNo_NONE_e) {
+            dComIfGs_setSelectItemIndex(idx, 0xFF);
+        }
+    } else {
+        g_dComIfG_gameInfo.play.setSelectItem(idx, dItemNo_NONE_e);
+    }
+    return HOOK_SKIP_ORIGINAL;
+}
+
+// Learning a scent parks the scent's item number in select index 2 — that would wipe slot I's
+// binding. Every reader that matters gets the scent via dComIfGs_getCollectSmell (also set by
+// this function), so put the binding back afterwards.
+u8 s_smellSavedSlot = 0xFF;
+
+HookAction on_set_smell_pre(ModContext*, void*, void*, void*) {
+    s_smellSavedSlot = dComIfGs_getSelectItemIndex(SELECT_ITEM_DOWN);
+    return HOOK_CONTINUE;
+}
+
+void on_set_smell_post(ModContext*, void*, void*, void*) {
+    dComIfGs_setSelectItemIndex(SELECT_ITEM_DOWN, s_smellSavedSlot);
+}
+
 // ---- pad injection (fork mDoCPd_c::read) ----
 
 void on_pad_read_post(ModContext*, void*, void*, void*) {
@@ -558,6 +598,9 @@ bool install() {
     ok &= add_post<AmapRestartCursorSize>(on_cursor_size_post) == MOD_OK;
     ok &= add_post<MapRenderSizeFor>(on_map_render_size_post) == MOD_OK;
     ok &= add_post<PadRead>(on_pad_read_post) == MOD_OK;
+    ok &= add_pre<SetSelectItem>(on_set_select_item_pre) == MOD_OK;
+    ok &= add_pre<SetSmellType>(on_set_smell_pre) == MOD_OK;
+    ok &= add_post<SetSmellType>(on_set_smell_post) == MOD_OK;
     ok &= add_pre<SceneChangeReq>(on_scene_change_pre) == MOD_OK;
     ok &= add_pre<LinkExecute>(on_link_execute_pre) == MOD_OK;
     if (!ok) {

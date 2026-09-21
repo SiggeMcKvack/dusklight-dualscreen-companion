@@ -66,6 +66,10 @@ unsigned padHoldMask();
 // binds; daAlink_c::setStickData ORs them into Link's item masks later the
 // same frame.
 unsigned slotTriggerBits();
+// Mod: slot (0/1) whose item is temporarily parked on X/Y by the slot substitute, -1 when none.
+// sanitizeSlotBindings leaves that slot alone while the park is in effect (the item IS on X/Y
+// then, which would otherwise read as "the wheel took it" and clear the binding).
+void setSlotParked(int i_which);
 unsigned slotHoldBits();
 
 // While the game's own map screen is up, the companion's warp button acts as

@@ -731,6 +731,11 @@ unsigned slotTriggerBits() {
     return s_slotTrig;
 }
 
+static int s_slotParked = -1;
+void setSlotParked(int i_which) {
+    s_slotParked = i_which;
+}
+
 unsigned slotHoldBits() {
     return s_slotHold;
 }
@@ -1186,7 +1191,7 @@ void sanitizeSlotBindings() {
         // A borrowed slot is holding Ooccoo for a frame or two on the map
         // button's behalf. If she is also on X/Y the rule below would dissolve
         // it mid-press — leave the borrow alone; it puts itself back.
-        if (slotIsBorrowed(s - 2)) {
+        if (slotIsBorrowed(s - 2) || s - 2 == s_slotParked) {
             continue;
         }
         const u8 xySel[4] = {dComIfGs_getSelectItemIndex(0), dComIfGs_getSelectItemIndex(1),

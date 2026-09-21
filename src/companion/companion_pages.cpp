@@ -821,7 +821,10 @@ void drawWarpTab(f32 x0, f32 y0, f32 x1, f32 y1, bool active) {
     const f32 groupW = ICON + GAP + measureText(labelTS, label);
     const f32 gx = x0 + (tw - groupW) * 0.5f;
     const f32 cy = y0 + th * 0.5f;
-    drawTimg(warpIconTimg(), gx, cy - ICON * 0.5f, ICON, ICON, iconA);
+    // IA4 glyph: untinted it is just its intensity channel (white on the light plate). The
+    // game's message system draws this exact texture as a dark blue portal — same tint here.
+    drawTimgTinted(warpIconTimg(), gx, cy - ICON * 0.5f, ICON, ICON, iconA, 0x0000FF00u,
+        0x1E3278FFu);
     drawText(gx + ICON + GAP, cy + 5.0f, labelTS, active ? TEXT_TAB_ACTIVE : TEXT_DIM, "%s",
         label);
 }

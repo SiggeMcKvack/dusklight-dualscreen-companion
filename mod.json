@@ -1,0 +1,7 @@
+{
+  "id": "dev.siggemckvack.dualscreen_companion",
+  "name": "Dual Screen Companion",
+  "version": "0.1.0",
+  "author": "SiggeMcKvack",
+  "description": "Second-screen companion dashboard for dual-screen Android handhelds (AYN Thor and similar): HUD, map, items, quest and collection pages with touch controls. Android only."
+}

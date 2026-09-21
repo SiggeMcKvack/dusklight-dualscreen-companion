@@ -66,6 +66,14 @@ add_custom_command(
     COMMENT "dualscreen_companion: embedding DEX"
     VERBATIM)
 
+# The mod catalogue requires the native metadata (abi, service imports/exports) in mod.json.
+# symgen reads it from the built library and merges it into a generated copy of mod.json that
+# the package uses; the source mod.json stays hand-written.
+include("${DUSK_DIR}/cmake/SymbolManifest.cmake")
+ensure_symgen(TRUE)
+set(_mod_json_generated "${CMAKE_CURRENT_BINARY_DIR}/mod.json")
+configure_file(mod.json "${_mod_json_generated}" COPYONLY)  # add_mod wants it to exist now
+
 add_mod(dev.siggemckvack.dualscreen_companion
     FEATURES fmt game webgpu
     SOURCES
@@ -94,8 +102,16 @@ add_mod(dev.siggemckvack.dualscreen_companion
         src/companion/companion_strings.cpp
         src/companion/companion_touch.cpp
         "${_dex_cpp}"
-    MOD_JSON mod.json
+    MOD_JSON "${_mod_json_generated}"
 )
+add_custom_command(
+    OUTPUT "${_mod_json_generated}"
+    COMMAND "${CMAKE_COMMAND}" -E copy "${CMAKE_CURRENT_SOURCE_DIR}/mod.json" "${_mod_json_generated}"
+    COMMAND "${SYMGEN_EXE}" modmeta --update-json "${_mod_json_generated}"
+            "$<TARGET_FILE:dev.siggemckvack.dualscreen_companion>"
+    DEPENDS dev.siggemckvack.dualscreen_companion "${CMAKE_CURRENT_SOURCE_DIR}/mod.json" symgen
+    COMMENT "dualscreen_companion: merging native metadata into mod.json"
+    VERBATIM)
 target_include_directories(dev.siggemckvack.dualscreen_companion PRIVATE src/include)
 
 # The guide store's index is JSON (header-only nlohmann_json, same version Dusklight uses).

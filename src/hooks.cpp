@@ -20,6 +20,8 @@
 #include "d/d_pane_class.h"
 #include "JSystem/J2DGraph/J2DPicture.h"
 #include "d/actor/d_a_alink.h"
+#include "d/actor/d_a_player.h"
+#include "d/d_meter_HIO.h"
 #include "f_op/f_op_scene_mng.h"
 #include "m_Do/m_Do_controller_pad.h"
 
@@ -31,19 +33,20 @@
 aurora::Vec2<u16> map_render_size_for(u16 width, u16 height);
 
 DEFINE_HOOK(&dMeter2Draw_c::draw, MeterDrawDraw);
-DEFINE_HOOK(&dMeter2Draw_c::drawButtonA, MeterDrawButtonA);
-DEFINE_HOOK(&dMeter2Draw_c::drawButtonB, MeterDrawButtonB);
 DEFINE_HOOK(&dMeter2Draw_c::setButtonIconAlpha, MeterDrawIconAlpha);
 DEFINE_HOOK(static_cast<void (dMeter2Draw_c::*)(CPaneMgr*, f32*, f32, JUtility::TColor,
                 JUtility::TColor, JUtility::TColor, JUtility::TColor, f32, u8)>(
                 &dMeter2Draw_c::drawPikari),
     MeterDrawPikariPane);
 DEFINE_HOOK(&dDlst_KanteraIcon_c::draw, KanteraIconDraw);
+DEFINE_HOOK(&CPaneMgrAlpha::show, PaneMgrShow);
 DEFINE_HOOK(static_cast<void (J2DPicture::*)(f32, f32, f32, f32, bool, bool, bool)>(&J2DPicture::draw),
     PictureDrawRect);
 DEFINE_HOOK(&dMeter2_c::_create, Meter2Create);
 DEFINE_HOOK(&dMeter2_c::_delete, Meter2Delete);
 DEFINE_HOOK(&dMeter2_c::_draw, Meter2Draw);
+DEFINE_HOOK(&dMeter2Draw_c::presentButtonA, MeterDrawPresentA);
+DEFINE_HOOK(&dMeter2Draw_c::presentButtonB, MeterDrawPresentB);
 DEFINE_HOOK(&dMeterMap_c::_draw, MeterMapDraw);
 DEFINE_HOOK(&dMap_c::_draw, MapDraw);
 DEFINE_HOOK(&renderingAmap_c::getPlayerCursorSize, AmapPlayerCursorSize);
@@ -70,10 +73,8 @@ bool s_kanteraScreenHidden = false;
 //   Functional - hearts, vessel, the A/B/Z cluster and the d-pad move back to the main
 //                screen; only the rupee/key readouts and the X/Y item buttons stay on the
 //                companion.
-// Difference from the fork: the button cluster is hidden through its A/B children rather than
-// mpButtonParent, because the host's draw() re-shows the parent every frame (touch-controls
-// logic) after this pre-hook ran. The companion composites A/B as roots, so their own flag is
-// ignored there.
+// The host's draw() re-shows mpButtonParent every frame (touch-controls logic) right after this
+// pre-hook; on_pane_show_pre blocks that one call while the cluster belongs to the companion.
 void syncPaneVisibility(dMeter2Draw_c* md, bool dualScreenHud, bool mainHudRestored,
     bool lowLifeHearts) {
     enum { STATE_MAIN, STATE_CINEMATIC, STATE_FUNCTIONAL };
@@ -98,8 +99,7 @@ void syncPaneVisibility(dMeter2Draw_c* md, bool dualScreenHud, bool mainHudResto
 
     // Cinematic-only: Functional moves these back to the main screen. The hearts alone come
     // back even in Cinematic while the low-health pop-in holds.
-    CPaneMgr* cinematicOnlyPanes[] = {
-        md->mpLifeParent, md->mpLightDropParent, md->mpButtonA, md->mpButtonB};
+    CPaneMgr* cinematicOnlyPanes[] = {md->mpLifeParent, md->mpLightDropParent, md->mpButtonParent};
     for (CPaneMgr* pane : cinematicOnlyPanes) {
         if (pane != NULL) {
             const bool show =
@@ -112,15 +112,18 @@ void syncPaneVisibility(dMeter2Draw_c* md, bool dualScreenHud, bool mainHudResto
         }
     }
 
-    // The Z/Midna prompt and the Z glyph: hidden on the main screen in both modes (the
-    // companion's Z corner shows them; in Cinematic the whole cluster is there anyway).
+    // Functional-only: the Z/Midna prompt and the Z glyph are children of the button cluster,
+    // which Functional keeps on the main screen for A/B — but the companion's Z corner already
+    // shows them, so the main-screen copies hide rather than duplicating. The game drives both
+    // via alpha only (never visibility), so an unconditional show() on the way out cannot
+    // resurrect a stale state.
     CPaneMgr* zPanes[] = {md->mpButtonMidona, md->mpButtonXY[2]};
     for (CPaneMgr* pane : zPanes) {
         if (pane != NULL) {
-            if (state == STATE_MAIN) {
-                pane->show();
-            } else {
+            if (state == STATE_FUNCTIONAL) {
                 pane->hide();
+            } else {
+                pane->show();
             }
         }
     }
@@ -225,6 +228,21 @@ void on_meter_draw_post(ModContext*, void* args, void*, void*) {
     }
 }
 
+// draw() re-shows mpButtonParent every frame for the touch-controls toggle; in Cinematic the
+// partition hid it (the whole cluster lives on the companion), so that show() must not land.
+HookAction on_pane_show_pre(ModContext*, void* args, void*, void*) {
+    if (!s_inMainDraw || s_mainDrawMd == nullptr) {
+        return HOOK_CONTINUE;
+    }
+    auto* pane = ::mods::arg<CPaneMgrAlpha*>(args, 0);
+    if (pane == s_mainDrawMd->mpButtonParent && dualscreen::hudOnCompanion() &&
+        !dualscreen::mainHudRestored())
+    {
+        return HOOK_SKIP_ORIGINAL;
+    }
+    return HOOK_CONTINUE;
+}
+
 // Lantern oil gauges: companion-only in both modes.
 HookAction on_kantera_icon_draw_pre(ModContext*, void*, void*, void*) {
     if (s_inMainDraw && dualscreen::hudOnCompanion()) {
@@ -269,42 +287,36 @@ HookAction on_pikari_pre(ModContext*, void* args, void*, void*) {
 
 // Functional keeps only A and B on the main screen: shift the pair as a group up into the
 // top-right corner (same delta for both, preserving their vanilla diagonal). Idle-cluster
-// state only.
-HookAction on_button_a_pre(ModContext*, void* args, void*, void*) {
-    auto* md = ::mods::arg<dMeter2Draw_c*>(args, 0);
-    const bool aiming = ::mods::arg<bool>(args, 7);
-    if (dualscreen::mainHudRestored() && idleCluster(md) && !aiming) {
-        ::mods::arg_ref<f32>(args, 2) += 43.0f;
-        ::mods::arg_ref<f32>(args, 3) -= 48.0f;
-        ::mods::arg_ref<f32>(args, 4) += 43.0f;
-        ::mods::arg_ref<f32>(args, 5) -= 48.0f;
-    }
-    return HOOK_CONTINUE;
+// state only. This Dusklight version applies the positions every presentation frame through
+// presentButtonA/B (drawButtonA/B no longer position anything on PC), so the shift goes on the
+// present args: (posX, posY, textPosX, textPosY, scale).
+bool a_aiming() {
+    daPy_py_c* player = daPy_getPlayerActorClass();
+    dMeter2_c* meter = dMeter2Info_getMeterClass();
+    return (meter != NULL && (meter->mStatus & 0x100)) ||
+           (player != NULL && (player->checkHawkWait() || player->checkGrassWhistle()));
 }
 
-HookAction on_button_b_pre(ModContext*, void* args, void*, void*) {
+HookAction on_present_a_pre(ModContext*, void* args, void*, void*) {
     auto* md = ::mods::arg<dMeter2Draw_c*>(args, 0);
-    if (dualscreen::mainHudRestored() && idleCluster(md)) {
+    if (dualscreen::mainHudRestored() && idleCluster(md) && !a_aiming()) {
+        ::mods::arg_ref<f32>(args, 1) += 43.0f;
+        ::mods::arg_ref<f32>(args, 2) -= 48.0f;
         ::mods::arg_ref<f32>(args, 3) += 43.0f;
         ::mods::arg_ref<f32>(args, 4) -= 48.0f;
-        ::mods::arg_ref<f32>(args, 5) += 43.0f;
-        ::mods::arg_ref<f32>(args, 6) -= 48.0f;
     }
     return HOOK_CONTINUE;
 }
 
-// Cinematic hides A/B through the buttons themselves; the game's own redraws re-show them on a
-// status change, so re-hide after each.
-void on_button_ab_post(ModContext*, void* args, void*, void*) {
+HookAction on_present_b_pre(ModContext*, void* args, void*, void*) {
     auto* md = ::mods::arg<dMeter2Draw_c*>(args, 0);
-    if (dualscreen::hudOnCompanion() && !dualscreen::mainHudRestored()) {
-        if (md->mpButtonA != NULL) {
-            md->mpButtonA->hide();
-        }
-        if (md->mpButtonB != NULL) {
-            md->mpButtonB->hide();
-        }
+    if (dualscreen::mainHudRestored() && idleCluster(md)) {
+        ::mods::arg_ref<f32>(args, 1) += 43.0f;
+        ::mods::arg_ref<f32>(args, 2) -= 48.0f;
+        ::mods::arg_ref<f32>(args, 3) += 43.0f;
+        ::mods::arg_ref<f32>(args, 4) -= 48.0f;
     }
+    return HOOK_CONTINUE;
 }
 
 // dMeter2Info's use-button bits are only truthful between Link's execute (which sets them) and
@@ -531,10 +543,9 @@ bool install() {
     ok &= add_pre<MeterDrawPikariPane>(on_pikari_pre) == MOD_OK;
     ok &= add_pre<KanteraIconDraw>(on_kantera_icon_draw_pre) == MOD_OK;
     ok &= add_pre<PictureDrawRect>(on_picture_draw_pre) == MOD_OK;
-    ok &= add_pre<MeterDrawButtonA>(on_button_a_pre) == MOD_OK;
-    ok &= add_post<MeterDrawButtonA>(on_button_ab_post) == MOD_OK;
-    ok &= add_pre<MeterDrawButtonB>(on_button_b_pre) == MOD_OK;
-    ok &= add_post<MeterDrawButtonB>(on_button_ab_post) == MOD_OK;
+    ok &= add_pre<MeterDrawPresentA>(on_present_a_pre) == MOD_OK;
+    ok &= add_pre<MeterDrawPresentB>(on_present_b_pre) == MOD_OK;
+    ok &= add_pre<PaneMgrShow>(on_pane_show_pre) == MOD_OK;
     ok &= add_pre<MeterDrawIconAlpha>(on_icon_alpha_pre) == MOD_OK;
     ok &= add_pre<Meter2Create>(on_meter2_create_pre) == MOD_OK;
     ok &= add_post<Meter2Delete>(on_meter2_delete_post) == MOD_OK;

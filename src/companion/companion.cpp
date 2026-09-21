@@ -363,6 +363,16 @@ void drawBattery(f32 x, f32 y) {
     const bool charging = s_batteryCharging.load();
     const f32 bw = 26.0f;
     const f32 bh = 12.0f;
+    // Callers anchor the glyph so that a two-digit percentage ends at the corner; "100%" is
+    // wider than that reservation and ran off the panel, so shift the whole readout left by
+    // the excess instead of clipping the text.
+    char pctText[8];
+    snprintf(pctText, sizeof(pctText), "%d%%", pct);
+    constexpr f32 kReservedTextW = 26.0f;
+    const f32 textW = measureText(13.0f, pctText);
+    if (textW > kReservedTextW) {
+        x -= textW - kReservedTextW;
+    }
     constexpr GXColor COL_SHELL = {150, 156, 172, 255};
     constexpr GXColor COL_WELL = {18, 21, 30, 255};
     fillRect(x - 1.0f, y - 1.0f, x + bw + 1.0f, y + bh + 1.0f, COL_SHELL);
@@ -378,7 +388,7 @@ void drawBattery(f32 x, f32 y) {
     if (fillW >= 1.0f) {
         fillRect(x + 2.0f, y + 2.0f, x + 2.0f + fillW, y + bh - 2.0f, fillColor);
     }
-    drawText(x + bw + 10.0f, y + bh * 0.5f + 5.0f, 13.0f, TEXT_MAIN, "%d%%", pct);
+    drawText(x + bw + 10.0f, y + bh * 0.5f + 5.0f, 13.0f, TEXT_MAIN, "%s", pctText);
 }
 
 // Bottom-right row: [FPS] [battery glyph] [pct] — FPS only when the video

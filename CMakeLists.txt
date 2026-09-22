@@ -103,6 +103,7 @@ add_mod(dev.siggemckvack.dualscreen_companion
         src/companion/companion_touch.cpp
         "${_dex_cpp}"
     MOD_JSON "${_mod_json_generated}"
+    RES_DIR  res
 )
 add_custom_command(
     OUTPUT "${_mod_json_generated}"

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(dualscreen_companion CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set(DUSK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/extern/dusklight" CACHE PATH "Path to the Dusklight source root")
     option(DUSK_MOD_USE_FULL_TREE "Use full build instead of the minimal mod SDK" OFF)

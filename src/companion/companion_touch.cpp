@@ -80,9 +80,9 @@ bool tryBowCombo(int btn, int slot, u8 itemNo) {
     if (itemNo == dItemNo_BOW_e && dComIfGs_getMixItemIndex(btn) == SLOT_4) {
         dComIfGs_setMixItemIndex(btn, dItemNo_NONE_e);
         dComIfGs_setSelectItemIndex(btn, SLOT_4);
-        // archiveText, not the 5-arg localizedWord: that overload latched its
-        // English fallback permanently if the archive happened to be
-        // unavailable on the one frame it fetched (e.g. mid room transition).
+        // archiveText, not the 5-arg localizedWord: that overload latches its
+        // English fallback permanently if the archive is unavailable on the
+        // frame it fetches (e.g. mid room transition).
         setEquipMsg(120, "%s", archiveText(0x04D3, "Combo off"));
         queueSound(Z2SE_SY_CURSOR_CANCEL, HAPTIC_LIGHT);
         return true;
@@ -274,14 +274,12 @@ void beginHold(int btn) {
     s_holdBtn = btn;
     s_holdFrames = 0;
     s_holdReleaseReq = false;
-    // BOTH masks, unconditionally: this store IS the clear of the other family.
-    // Setting only one left the previous button asserted for the whole new hold
-    // whenever a second tap landed inside TAP_HOLD_FRAMES — that tap resets
-    // s_holdReleaseReq and s_holdFrames, so the deferred clear in
-    // beginFrameCompanionInput never fires, and the cancel gate there cannot
-    // catch it either (its X/Y term requires !mainHudRestored, and X/Y only
-    // exist in Functional, which IS mainHudRestored). Two taps inside 0.4s is
-    // ordinary play, and Functional publishes X/Y and I/II rects together.
+    // Store BOTH masks unconditionally: this is the only clear of the other
+    // family. A second tap inside TAP_HOLD_FRAMES resets s_holdReleaseReq and
+    // s_holdFrames, so the deferred clear in beginFrameCompanionInput never
+    // fires for the previous button, and its cancel gate can't catch it
+    // either (the X/Y term requires !mainHudRestored, but X/Y only exist in
+    // Functional, which is mainHudRestored).
     s_padHoldMaskState.store(btn == 0 ? PAD_BUTTON_X : btn == 1 ? PAD_BUTTON_Y : 0u);
     s_slotHoldMaskState.store(btn >= 2 ? (1u << (btn - 2)) : 0u);
 }
@@ -355,8 +353,8 @@ void handleXYTap(int xy) {
     beginHold(xy);
 }
 
-// Tap on the I / II slot: press item button 2/3 — the slots ARE first-class
-// buttons now, so this is exactly a tap on X or Y.
+// Tap on the I / II slot: press item button 2/3 — the slots are first-class
+// buttons, so this mirrors a tap on X or Y.
 void handleSlotTap(int which) {
     if (inEquipMode()) {
         return;  // release path binds the selection to this slot
@@ -421,7 +419,6 @@ int dropTargetAt(f32 tx, f32 ty) {
     }
     return -1;
 }
-
 
 // COLLECT page: sub-tab strip, then overview gear-box tap-to-equip.
 // Returns true when the tap was consumed.
@@ -488,9 +485,8 @@ bool handleCollectTouch(f32 tx, f32 ty) {
 // "Is this drop a combo-or-replace question?" - a combo PARTNER landing on a
 // button that already carries the bow. Three sites ask it and must agree:
 // equipFromCompanion (raises the chooser), tryBowCombo (does the combining) and
-// drawComboChoice (self-cancels when it stops being true). Written out three
-// times, drift meant a chooser that could not resolve, or one that vanished
-// mid-decision.
+// drawComboChoice (self-cancels when it stops being true); any disagreement
+// yields a chooser that can't resolve or vanishes mid-decision.
 bool bowComboAmbiguous(int btn, u8 itemNo) {
     const bool partner = itemNo == dItemNo_NORMAL_BOMB_e ||
         itemNo == dItemNo_WATER_BOMB_e || itemNo == dItemNo_POKE_BOMB_e ||
@@ -531,11 +527,10 @@ static int pickOoccooBorrowSlot() {
 // Nor on dMeter2Draw_c::isItemUsable, the way handleSlotTap gates a slot press:
 // that bit is per-button and Link only raises it for a button that HAS a usable
 // item on it, so it reads false for exactly the empty slot this prefers to
-// borrow. Measured on the rig — usable2/usable3 were 0 for the whole run with
-// both slots empty. The rest of the refusals (mid-swim, boss room, the Lv7
-// shop, not on the ground) stay with the game, which already checks all of them
-// in checkItemProc: they cost a press that does nothing, and the borrow puts
-// itself back either way.
+// borrow (measured: usable2/usable3 stay 0 with both slots empty). The other
+// refusals (mid-swim, boss room, the Lv7 shop, not on the ground) are left to
+// the game's checkItemProc: they cost a no-op press, and the borrow puts itself
+// back either way.
 bool ooccooQuickUseAvailable() {
     return s_ooccooFrames < 0 && s_holdBtn < 0 && ooccooSlot() >= 0 &&
            !companionWolf() && meterDraw() != NULL && !touchUseBlocked() &&
@@ -562,11 +557,11 @@ bool requestOoccooQuickUse() {
     const int which = pickOoccooBorrowSlot();
     s_ooccooBorrowWhich = which;
     s_ooccooSavedBinding = slotBinding(which);
-    // The MIX too: setSlotBinding clears it, and a slot CAN carry a bow combo
-    // (equipFromCompanion's chooser is armed for the slot targets as well as
-    // X/Y, and sanitizeSlotBindings only dissolves a slot combo when the bow or
-    // its partner is also on X/Y). Restoring the select index alone destroyed
-    // the combo permanently.
+    // Save the MIX too: setSlotBinding clears it, and a slot CAN carry a bow
+    // combo (equipFromCompanion's chooser is armed for the slot targets as well
+    // as X/Y, and sanitizeSlotBindings only dissolves a slot combo when the bow
+    // or its partner is also on X/Y). Restoring only the select index would
+    // destroy the combo permanently.
     s_ooccooSavedMix = dComIfGs_getMixItemIndex(2 + which);
     s_ooccooFrames = 0;
     s_ooccooHoldBtn = 2 + which;
@@ -675,35 +670,15 @@ void handleTouch(f32 w, f32 h) {
         }
         return;
     }
-    // Corner buttons are tested BEFORE the tab-strip split: the bottom two
-    // deliberately sit level with the tab bar, so gating them on
-    // "ty < h - TABS_H" would leave only their upper halves tappable.
-    // They never overlap the tabs horizontally (the tabs live between the
-    // two side columns), so testing them first steals nothing.
-    //
-    // Wolf/human transform button, and the Functional layout's Z button —
-    // the Z press is injected at the pad next frame, so every consumer
-    // (Midna, camera, menu Z actions) sees an ordinary Z.
-    // Both left corners get a grace margin: they hug the screen edge, where
-    // devices shave touchable area (gesture zones, rounded corners), and
-    // nothing else lives near them to steal from.
-    // FLOOR PICKER FIRST — ahead of the corner buttons below.
-    //
-    // It is modal: while it is up the left column is hidden behind an opaque
-    // slab, so nothing under that slab may be reachable. The corner buttons
-    // are hit-tested before everything else (see the note above) and so used
-    // to fire straight THROUGH the cover — a button the player cannot see
-    // responding to a tap. Testing the picker first closes that hole.
-    // A tap on a row picks it; anything else closes the picker and is
-    // swallowed rather than falling through.
-    // Gated on the ANIMATION, not the open flag: the cover keeps drawing for
-    // ~12 frames after the flag clears, and during those frames taps used to
-    // reach the corner buttons underneath it — pick a floor, tap top-left 50ms
-    // later, and Link transformed into a wolf through an opaque slab.
+    // Floor picker: modal, and tested ahead of the corner buttons because its
+    // opaque slab covers the left column — nothing under it may fire. A tap
+    // on a row picks it; anything else closes the picker and is swallowed.
+    // Gated on the animation, not the open flag: the cover keeps drawing for
+    // ~12 frames after the flag clears, and a tap on a hidden corner in that
+    // window would e.g. transform Link through the slab.
     if (s_dmapFloorPickOpen || s_dmapFloorPickT > 0.0f) {
-        // BACKWARDS: rows overlap while the list is still expanding, and they
-        // are painted in ascending order, so the last drawn is on top. A
-        // forward scan returned the row *underneath* the one being touched.
+        // Scan backwards: rows overlap while the list expands and are painted
+        // in ascending order, so the last drawn is on top.
         for (int i = s_dmapFloorRectCount - 1; i >= 0; i--) {
             if (rectHit(s_dmapFloorRects[i], tx, ty)) {
                 s_dmapFloorSel = s_dmapFloorVals[i];
@@ -717,23 +692,27 @@ void handleTouch(f32 w, f32 h) {
         return;
     }
 
-    // The left column's Guide page opens the reader — but NOT from here.
-    // Opening on press stole every vertical swipe, so the column could no
-    // longer be paged. The open is deferred to release, next to the swipe
-    // test, so a drag pages the column and only a still press opens.
+    // The left column's Guide page opens the reader on release, not press:
+    // opening on press would steal the vertical swipe that pages the column.
     if (!guideIsOpen() && guideAvailable() &&
         s_leftBoxPage.load() == LEFT_BOX_GUIDE && rectHit(s_leftBoxRect, tx, ty))
     {
         return;  // consumed; the release decides swipe vs open
     }
-    // The reader is modal only over the CONTENT WINDOW: corner buttons, slots,
-    // X/Y and the tab strip are all tested above this point and stay live, so
-    // the HUD keeps working while a guide is open.
+    // The reader is modal only over the content window: corner buttons, slots,
+    // X/Y and the tab strip lie outside it, so the HUD keeps working while a
+    // guide is open.
     if (guideIsOpen() && rectHit(s_contentRect, tx, ty)) {
         handleGuideTouch(tx, ty);
         return;
     }
 
+    // Corner buttons (transform; Functional's Z, injected at the pad next
+    // frame so every consumer sees an ordinary Z) are tested before the
+    // tab-strip split: the bottom two sit level with the tab bar, and a
+    // "ty < h - TABS_H" gate would leave only their upper halves tappable.
+    // They never overlap the tabs horizontally. The grace margin covers
+    // screen-edge area devices shave off (gesture zones, rounded corners).
     constexpr f32 CORNER_GRACE = 12.0f;
     if (rectHit(s_transformBtnRect, tx, ty, CORNER_GRACE)) {
         s_pressAnim[4] = 1.0f;
@@ -810,7 +789,7 @@ void handleTouch(f32 w, f32 h) {
             queueSound(Z2SE_SY_CURSOR_OK, HAPTIC_LIGHT);
             break;
         case CTX_HOME:
-            // Straight home to the library overview from ANY depth — a open
+            // Straight home to the library overview from ANY depth — an open
             // reader closes with its section. Shrink back into the library
             // cell; the dispatch flips the tab to overview when the
             // animation lands. Straight out if there is no recorded cell
@@ -866,8 +845,7 @@ void handleTouch(f32 w, f32 h) {
         }
     }
     if (ty < h - TABS_H) {
-        // ITEMS info reader Back button (only published while reading; the
-        // Info trigger itself is the left-column context tab now).
+        // ITEMS info reader Back button (only published while reading).
         if (s_page.load() == PAGE_INVENTORY && s_itemInfoSlot >= 0 &&
             rectHit(s_itemInfoBtnRect, tx, ty))
         {
@@ -882,9 +860,6 @@ void handleTouch(f32 w, f32 h) {
         if (s_page.load() == PAGE_COLLECTION) {
             handleCollectTouch(tx, ty);
         } else if (s_page.load() == PAGE_MAP) {
-            // Warp and Floor are the left-column context tab now (handled
-            // above, page-independent). Only the in-window Reset button
-            // remains here.
             // Ooccoo quick-use. One tap: her own two-choice message is the
             // confirm step (see drawOoccooButton).
             if (rectHit(s_ooccooBtnRect, tx, ty)) {
@@ -899,10 +874,9 @@ void handleTouch(f32 w, f32 h) {
             if (rectHit(s_mapResetRect, tx, ty)) {
                 s_mapResetGlide = true;
                 if (s_dmapAvailable) {
-                    // The room-fit request IS the "supposed" view — the
-                    // round-154 glide dropped it and the dungeon stopped
-                    // returning to the room-fit zoom. The center still
-                    // glides via room-follow; only the zoom snaps.
+                    // The room-fit request is the reset target zoom, so
+                    // the zoom snaps; the center still glides via
+                    // room-follow.
                     s_dmapResetReq = true;
                     s_dmapFollow = true;
                     s_dmapFloorSel = DMAP_FLOOR_FOLLOW;
@@ -941,12 +915,9 @@ void processDragTouch(f32 w, f32 h) {
     const f32 ty = (f32)(packed & 0xFFFF) / 65535.0f * h;
     const bool onItemsPage = s_page.load() == PAGE_INVENTORY && s_invGeomValid &&
         !guideIsOpen();  // the reader covers the grid: a scroll must not equip
-    // Panning the map requires the gesture to have STARTED over the map
-    // itself. Without that, a swipe anywhere on the companion — the dungeon
-    // icon box, the side columns — dragged the map with it.
-    // The guide owns the content window while it is up, so the map must not
-    // pan, drag or pinch underneath it — that was the reader "sliding the map
-    // around" as you scrolled.
+    // Panning requires the gesture to have STARTED over the map, so swipes on
+    // the side columns don't drag it; and never under the open guide, which
+    // owns the content window.
     const bool onMapPage = s_page.load() == PAGE_MAP && s_downOnContent &&
         !s_pageSliding && !guideIsOpen();
     // Scrollable list under the finger: the guide reader, skills/mail lists and
@@ -991,10 +962,8 @@ void processDragTouch(f32 w, f32 h) {
         // gesture's first frame: s_dragX/Y still hold the previous gesture's
         // last position and would produce a jump.
         if (onMapPage && !firstFrame) {
-            // While the reset glide runs, a REAL drag (past the tap slop)
-            // takes the view back — but the Reset tap's own 1-3px finger
-            // wobble must not: on device it cancelled the glide one frame
-            // in, so Reset only ever moved a fraction per tap.
+            // During the reset glide only a real drag (past the tap slop)
+            // cancels it — the Reset tap's own 1-3px finger wobble must not.
             const f32 gdx = tx - s_downX;
             const f32 gdy = ty - s_downY;
             if (!s_mapResetGlide || gdx * gdx + gdy * gdy > 100.0f) {
@@ -1093,9 +1062,6 @@ void processDragTouch(f32 w, f32 h) {
     // entry outright — the context tab is the way home, not the way in, so
     // there is no select-then-confirm step here.
     if (s_readerTapCand >= 0 && guideIsOpen()) {
-        // Same deferred path the collect rows use: the tap only lands if the
-        // finger stayed inside the slop, so dragging the list scrolls it
-        // instead of opening whatever was under the finger when it went down.
         guideRowTap(s_readerTapCand);
         s_readerTapCand = -1;
         s_dragging = false;

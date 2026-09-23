@@ -2,7 +2,7 @@
 
 // On-disk store for converted guides.
 //
-// Layout under the user data directory (dusk::ConfigPath):
+// Layout under the mod's data directory (see set_guides_root):
 //
 //   guides/
 //     index.json          catalogue: id, title, source, section list
@@ -11,9 +11,9 @@
 //     import/             DROP ZONE: user-saved .html goes here
 //     import/done/        sources that have been converted, kept for re-import
 //
-// The import folder is the path that makes sites which block automated
-// requests usable at all: the user saves the page in their own browser and
-// drops the file in. Nothing here talks to the network — that is fetch.cpp.
+// The import folder is what makes sites that block automated requests usable:
+// pages are saved by a real browser and dropped in. Nothing here talks to the
+// network.
 
 #include <filesystem>
 #include <functional>
@@ -48,7 +48,7 @@ struct Index {
 };
 
 // Paths. guides_root() creates nothing; ensure_dirs() creates the tree.
-// Mod: where the store lives (the mod's persistent data dir + "guides"). Set before any other call.
+// set_guides_root() must be called (with the mod's data dir + "guides") before any other call.
 void set_guides_root(const std::filesystem::path& root);
 std::filesystem::path guides_root();
 std::filesystem::path import_dir();
@@ -61,22 +61,19 @@ Index load_index();
 bool save_index(const Index& index);
 
 // Document I/O. save_document() writes through a temp file and renames, so a
-// crash mid-write cannot leave a half-parsed guide behind (same reason
-// config.cpp does it).
+// crash mid-write cannot leave a half-parsed guide behind.
 bool save_document(const std::string& id, const Document& doc);
 std::optional<Document> load_document(const std::string& id);
 
 // Supplies the bytes for one image. Returning false (or leaving the buffer
 // empty) means "not available" and the reader falls back to alt text.
 //
-// A callback rather than a direct download so this file stays free of network
-// dependencies: the import path reads from the browser's saved _files folder,
-// the download path fetches over HTTPS, and both drive the same loop.
+// A callback so this file stays free of network dependencies: the import path
+// reads from the browser's saved _files folder, with an optional fallback.
 using ImageSource = std::function<bool(const std::string& url, std::string& outBytes)>;
 
 // Converts raw HTML into the store and returns the id it was filed under, or
-// empty on failure. Takes the markup directly so the downloader does not have
-// to stage a temp file just to hand it over.
+// empty on failure.
 // `fallbackName` seeds the id when the page has no usable title.
 // `images` is optional; without it the guide is text-only.
 std::string import_html_content(const std::string& html, const std::string& sourceUrl,
@@ -89,22 +86,10 @@ std::string import_html_content(const std::string& html, const std::string& sour
 std::string import_html_file(const std::filesystem::path& file, const std::string& sourceUrl,
     const ImageSource& netFallback = {});
 
-// Converts every *.html / *.htm sitting in import/, moving each source into
-// import/done/ afterwards so it is not converted twice. Returns the number
-// imported. Safe to call on every open.
-// True when the stored catalogue was written by an older converter and the
-// archived sources should be run through it again. Exposed because the reader
-// has to kick that off: a version bump otherwise only reaches installs with an
-// EMPTY store, i.e. exactly the ones with nothing to re-convert.
-// Brings an existing store across when the data folder has been moved off its
-// default (Android only; elsewhere the store already lives under the data
-// path). Idempotent, safe to call every launch, and does nothing when the
-// destination already holds a store.
+// No-op in the mod: the host owns the data directory.
 void migrate_store_if_needed();
 
-// The move itself, exposed for testing. Returns true only when a store was
-// actually relocated. Refuses when the destination already holds one, and on a
-// cross-device copy never removes the source until the copy is verified.
+// Declared for parity with the fork; not defined or used in the mod.
 bool migrate_store_dir(const std::filesystem::path& from, const std::filesystem::path& to);
 
 // Leading "13.1" of a numbered section title, empty when it has none. The one
@@ -112,8 +97,15 @@ bool migrate_store_dir(const std::filesystem::path& from, const std::filesystem:
 // with it, and the reader orders chapters by it, and those two must not drift.
 std::string section_number(const std::string& title);
 
+// True when the stored catalogue was written by an older converter and the
+// archived sources should be run through it again. Exposed because the reader
+// has to kick that off: a version bump otherwise only reaches installs with an
+// empty store, i.e. exactly the ones with nothing to re-convert.
 bool index_needs_reconvert();
 
+// Converts every *.html / *.htm sitting in import/, moving each source into
+// import/done/ afterwards so it is not converted twice. Returns the number
+// imported. Safe to call on every open.
 int scan_import_folder(const ImageSource& netFallback = {});
 
 }  // namespace dusk::guide

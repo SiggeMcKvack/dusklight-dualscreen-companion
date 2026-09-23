@@ -8,7 +8,7 @@
 // reader can afford no per-frame parsing, and the render side wants a flat list
 // of already-transcoded, already-classified blocks.
 //
-// The model is deliberately six node kinds, not a DOM. RmlUi ships an XML
+// The model is deliberately five node kinds, not a DOM. RmlUi ships an XML
 // parser but real walkthrough pages are tag soup, not well-formed XML, and a
 // tree would buy nothing a flat block list does not already give us.
 
@@ -31,10 +31,8 @@ struct Node {
     std::uint8_t level = 0;
     std::string text;  // LATIN-1, entities resolved, whitespace collapsed
     std::string ref;   // image filename; empty otherwise
-    // Pixel size of an Image node, recorded at import. The reader needs the
-    // aspect ratio to reserve flow height, and without this it had to DECODE
-    // every image in a section just to measure it — 20 JPEG decodes inside one
-    // draw call, which then evicted its own cache. 0 = unknown.
+    // Pixel size of an Image node, recorded at import so the reader can reserve
+    // flow height without decoding every image in a section. 0 = unknown.
     int imgW = 0;
     int imgH = 0;
 };
@@ -98,8 +96,8 @@ Document deserialize(const std::string& text);
 std::string resolve_url(const std::string& base, const std::string& ref);
 
 // Filename an image ref is stored under: the last path component, stripped of
-// any query string and sanitised to the safe set. Both the acquire step and
-// the reader derive it the same way, so they always agree.
+// any query string and sanitised to the safe set (data: refs are named by a
+// hash of the payload). The store rewrites each ref to this name.
 std::string image_filename(const std::string& ref);
 
 // Lowercase, alphanumeric-and-dashes slug used as a Section id and as the

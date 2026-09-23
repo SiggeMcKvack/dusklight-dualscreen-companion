@@ -1,10 +1,9 @@
 // Companion dashboard: the Functional ("3DS style") layout — the left column
 // of status boxes and the four corner controls.
 //
-// Split out of companion.cpp, which had grown past 3700 lines carrying both
-// HUD layouts at once. The two are selected by dualscreen::mainHudRestored()
-// and share nothing but the primitives in companion_gfx.cpp and the state in
-// companion_internal.h, so they are genuinely separate surfaces.
+// Selected against the Cinematic layout by dualscreen::mainHudRestored(); the
+// two share only the primitives in companion_gfx.cpp and the state in
+// companion_internal.h.
 
 #include "dusk/companion.h"
 #include "dusk/companion_internal.h"
@@ -98,10 +97,6 @@ void drawLeftRupeeBox(f32 x1, f32 y0, f32 y1) {
     drawHudNumber(rupee, gx + iconS + GAP, cy - digitH * 0.5f, digitH);
 }
 
-// Bottom zone, tears-quest variant: the Vessel of Light with its count under
-// it. The vessel art fills as tears go in, so the icon doubles as a progress
-// bar and the counter gives the exact figure. Returns false when no tears
-// quest is running, so the caller can fall through.
 // Same gate as the Cinematic vessel: 0 = quest not started here, 0xFF =
 // already finished.
 bool leftVesselAvailable() {
@@ -113,24 +108,23 @@ bool leftVesselAvailable() {
     return dropFlag != 0 && dropFlag != 0xFF;
 }
 
+// Bottom zone, tears-quest variant: the Vessel of Light with its count under
+// it. The vessel art fills as tears go in, so the icon doubles as a progress
+// bar and the counter gives the exact figure. Returns false when no tears
+// quest is running, so the caller can fall through.
 bool drawLeftVesselBox(dMeter2Draw_c* md, f32 x1, f32 y0, f32 y1) {
     if (md == NULL || !leftVesselAvailable()) {
         return false;
     }
     const s8 darkArea = dComIfGp_getStartStageDarkArea();
-    // The vessel is LIVE on the main screen in Functional, so the composite
-    // brackets an alpha-only push/pop: alphas are raised to the always-
-    // visible state just for this draw and the live (possibly faded) rates
-    // restored immediately after — the box shows the vessel for the whole
-    // quest without pinning the main screen's fade opaque, which is what
-    // the old per-frame refresh did. (Cinematic's drawVesselOfLight keeps
-    // the plain refresh — its panes are hidden on main, so pinning is free.)
     constexpr f32 LABEL_H = 22.0f;
-    // Full state push: the composite must see the CANONICAL vessel layout —
-    // while the main screen animates the vessel (tear collected, drops
-    // flying), the live pane positions scatter and the composite's fitted
-    // bounds ballooned, leaving this box visually empty exactly when the
-    // quest was most active.
+    // Full state push/pop around the composite. Alphas are raised to the
+    // always-visible state only for this draw, so the box shows the vessel all
+    // quest without pinning the main screen's (live) fade opaque; positions
+    // are reset to the canonical layout because while the main screen animates
+    // the vessel the scattered panes balloon the composite's fitted bounds and
+    // leave this box empty. (Cinematic's drawVesselOfLight needn't do this —
+    // its panes are hidden on main.)
     f32 savedAlpha[dMeter2DrawAccess::VESSEL_ALPHA_SAVE_COUNT];
     f32 savedX[dMeter2DrawAccess::VESSEL_ALPHA_SAVE_COUNT];
     f32 savedY[dMeter2DrawAccess::VESSEL_ALPHA_SAVE_COUNT];
@@ -146,10 +140,6 @@ bool drawLeftVesselBox(dMeter2Draw_c* md, f32 x1, f32 y0, f32 y1) {
     drawTextCentered(x1 * 0.5f, y1 - 7.0f, 15.0f, TEXT_MAIN, text);
     return true;
 }
-
-// Bottom zone: dark box with the dungeon items in a 2x2 grid — small key
-// (counter), map, compass, boss key. Returns false outside dungeons so the
-// caller can offer the zone to the tears quest instead.
 
 // Small-key display rule, shared with the Cinematic top bar (the game's own
 // dMeter2_c::isKeyVisible): stages flagged for key display show the counter
@@ -169,6 +159,9 @@ bool leftDungeonAvailable() {
     return dStage_stagInfo_GetSTType(stagInfo) == ST_DUNGEON || leftKeyVisible(stagInfo);
 }
 
+// Bottom zone: dark box with the dungeon items in a 2x2 grid — small key
+// (counter), map, compass, boss key. Returns false outside dungeons so the
+// caller can offer the zone to the tears quest instead.
 bool drawLeftDungeonBox(f32 x1, f32 y0, f32 y1) {
     stage_stag_info_class* stagInfo = dComIfGp_getStage()->getStagInfo();
     if (!leftDungeonAvailable()) {
@@ -177,9 +170,9 @@ bool drawLeftDungeonBox(f32 x1, f32 y0, f32 y1) {
     const bool dungeon = dStage_stagInfo_GetSTType(stagInfo) == ST_DUNGEON;
     const f32 cellW = x1 * 0.5f;
     const f32 icon = 31.0f;
-    // Rows sit a fixed distance apart around the box's centre rather than
-    // filling half its height each — halving left a gap the icons couldn't
-    // justify. SHIFT_X nudges the pair off the panel's bleeding left edge.
+    // Rows sit a fixed distance apart around the box's centre; half the box
+    // height each would leave too wide a gap. SHIFT_X nudges the pair off the
+    // panel's bleeding left edge.
     constexpr f32 ROW_GAP = 40.0f;
     constexpr f32 SHIFT_X = 5.0f;
     const f32 cyC = (y0 + y1) * 0.5f;
@@ -284,17 +277,15 @@ void drawLeftProgressBox(f32 y0, f32 y1) {
 }
 
 // Sun or crescent moon, drawn rather than sourced: the game has no HUD art
-// for either. The crescent is a disc with a second disc bitten out of it in
-// the panel's own fill colour.
+// for either.
 void drawDayNightGlyph(f32 cx, f32 cy, f32 r, bool night) {
     constexpr GXColor SUN = {236, 206, 122, 255};
     constexpr GXColor MOON = {206, 214, 230, 255};
     if (night) {
         // Scanline lune rather than a disc with a second disc painted over
         // it: the panel fill is semi-transparent, so re-painting its colour
-        // can't reproduce the blend behind it and the "bite" showed as a grey
-        // circle. Each row is the outer circle's span clipped at the inner
-        // circle's left edge.
+        // would show the "bite" as a grey circle. Each row is the outer
+        // circle's span clipped at the inner circle's left edge.
         constexpr int STEPS = 24;
         const f32 icx = cx + r * 0.52f;
         const f32 icy = cy - r * 0.22f;
@@ -466,7 +457,7 @@ void drawLeftInfoBox(dMeter2Draw_c* md, f32 x1, f32 y0, f32 y1) {
     s_leftBoxRect[1] = y0;
     s_leftBoxRect[2] = x1;
     s_leftBoxRect[3] = y1;
-    // The dot column eats width now, not height.
+    // Width reserved on the right for the page-dot column.
     constexpr f32 DOTS_W = 14.0f;
     const f32 cx1 = x1 - DOTS_W;
     int pages[LEFT_BOX_PAGES];
@@ -561,20 +552,13 @@ void drawFunctionalLeftColumn(dMeter2Draw_c* md, f32 colX, f32 y0, f32 y1) {
     const f32 tabY1 = tabY0 + FN_CTXTAB_H;
 
     drawLeftRupeeBox(x1, y0, rupeeY1);
-    // Dark bridge from the tab across to the content window's left edge, so
-    // the tab reads as part of the window rather than a floating plate. Same
-    // fill as the window interior; drawn before the tab so the plate sits on
-    // top of it. Matches drawDashboardFunctional's own inset maths.
-    // Backing under the WHOLE tab, 6px proud top and bottom, running from the
-    // screen's left edge across to the content window — so the tab sits on a
-    // dark bed that bleeds in from the left like the panels above and below
-    // it, and flows into the window on the right. Left corners chamfered to
-    // echo the tab's own cut.
-    // Same fill and 1.5px frame as the content window (COL_WINDOW/COL_FRAME),
-    // so the bed reads as an alcove of the window rather than a separate
-    // panel. Its right edge is scissored off — a closed border there would
-    // wall the bed away from the window it is supposed to open into — so the
-    // top and bottom rules run straight into the window's own left rule.
+    // Dark bed under the whole tab, 6px proud top and bottom, bleeding in
+    // from the screen's left edge and flowing into the content window, so the
+    // tab reads as an alcove of the window rather than a floating plate. Same
+    // fill and 1.5px frame as the window; drawn before the tab so the plate
+    // sits on top. contentX0 matches drawDashboardFunctional's inset maths.
+    // The frame's right edge is scissored off so its top and bottom rules run
+    // straight into the window's own left rule instead of walling it off.
     constexpr f32 BLEED_OVER = 6.0f;
     constexpr f32 BLEED_CH = 14.0f;
     const f32 contentX0 = FN_CORNER_MARGIN + FN_CORNER + FN_GAP;
@@ -586,15 +570,12 @@ void drawFunctionalLeftColumn(dMeter2Draw_c* md, f32 colX, f32 y0, f32 y1) {
         drawChamferFrame(0.0f, bedY0, contentX0 + 12.0f, bedY1, BLEED_CH, 1.5f, COL_FRAME, 1 | 8);
         GXSetScissorRender(0, 0, s_nativeW, s_nativeH);
     }
-    // The tab runs all the way to the content window's left edge — it is the
-    // one zone that bridges into the window, so stopping short of it (where
-    // the rupee and dungeon panels stop) left a notch in the join.
+    // Unlike the rupee and dungeon panels, the tab runs all the way to the
+    // content window's left edge; stopping short leaves a notch in the join.
     drawContextTab(x0, tabY0, contentX0, tabY1);
-    // The bridge bed's fill erased the content window's own left rule across
-    // the tab's span, so the border went dark exactly at this one junction.
-    // Redraw that rule segment (same colour/inset as drawWindowOrnaments'
-    // side rule) over the seam so the window's left border reads as one
-    // clean, continuous line past the plate.
+    // The bed's fill covers the content window's left rule across the tab's
+    // span; redraw that segment (same colour/inset as drawWindowOrnaments'
+    // side rule) so the border stays continuous past the plate.
     if (contentX0 > x1) {
         fillRect(contentX0 + 0.5f, tabY0 - BLEED_OVER, contentX0 + 2.5f, tabY1 + BLEED_OVER,
             COL_SIDE_RULE);
@@ -602,16 +583,6 @@ void drawFunctionalLeftColumn(dMeter2Draw_c* md, f32 colX, f32 y0, f32 y1) {
     drawLeftInfoBox(md, x1, boxY0, y1);
 }
 
-// The four persistent corner boxes: transform top-left, I top-right,
-// Z bottom-left, II bottom-right. Same size, chamfered, hard against the
-// screen corners. Each stays put whether or not its action is available —
-// unavailable ones dim rather than disappearing.
-// Wolf form: the slot buttons' items are all unusable, so the I/II corners
-// become wolf readouts instead of dead item cells — I shows the scent the
-// wolf currently carries, II counts Poe souls (poe hunting being the
-// signature senses activity). Pure readouts: the plate stays dark like an
-// unequipped slot so they never read as tappable, and handleSlotTap
-// swallows taps inert.
 // Case-insensitive LATIN-1 byte compare over n bytes.
 bool scentCiEqual(const char* a, const char* b, int n) {
     for (int i = 0; i < n; i++) {
@@ -739,8 +710,12 @@ const char* trimScentWord(const char* name, char* buf, int bufLen) {
     return buf;
 }
 
-
-
+// Wolf form: the slot buttons' items are all unusable, so the I/II corners
+// become wolf readouts instead of dead item cells — I shows the scent the
+// wolf currently carries, II counts Poe souls (poe hunting being the
+// signature senses activity). Pure readouts: the plate stays dark like an
+// unequipped slot so they never read as tappable, and handleSlotTap
+// swallows taps inert.
 void drawWolfCornerCell(int which, f32 x0, f32 y0, f32 x1, f32 y1) {
     const f32 side = x1 - x0;
     const f32 icon = side * 0.55f;
@@ -757,9 +732,8 @@ void drawWolfCornerCell(int which, f32 x0, f32 y0, f32 x1, f32 y1) {
         if (t != NULL) {
             drawTimg(t, ix, iy, icon, icon, has ? (u8)0xFF : (u8)55);
         }
-        // Name hugs the icon rather than the box's bottom edge.
-        // Localized scent names are far longer than the old short labels
-        // ("Geruch von Medizin"), and this corner is only FN_CORNER wide.
+        // Name hugs the icon rather than the box's bottom edge, fitted because
+        // localized scent names run long and this corner is only FN_CORNER wide.
         drawTextFittedCentered(cx, iy + icon + 8.0f, 10.0f, 6.5f, (x1 - x0) - 8.0f,
             has ? TEXT_MAIN : TEXT_DIM, trimScentWord(name, scentBuf,
                 (int)sizeof(scentBuf)));
@@ -797,11 +771,11 @@ void drawWolfCornerCell(int which, f32 x0, f32 y0, f32 x1, f32 y1) {
     }
 }
 
-    // Top-right / bottom-right: the I and II item slots — persistent
-    // bindings that fire through the host button on tap ("extra buttons").
-    // Boxes stay put in every state; empty or menu-hidden slots draw dim.
-    // Rects are published even when empty so taps are swallowed rather than
-    // falling through to the page beneath.
+// Top-right / bottom-right: the I and II item slots — persistent bindings
+// that fire through the host button on tap ("extra buttons"). Boxes stay put
+// in every state; empty or menu-hidden slots draw dim. Rects are published
+// even when empty so taps are swallowed rather than falling through to the
+// page beneath.
 void drawFunctionalSlotCorners(dMeter2Draw_c* md, f32 rx0, f32 rx1, f32 ty0, f32 ty1,
     f32 by0, f32 by1) {
     const int winStatus = dMeter2Info_getWindowStatus();
@@ -819,11 +793,8 @@ void drawFunctionalSlotCorners(dMeter2Draw_c* md, f32 rx0, f32 rx1, f32 ty0, f32
     } slots[2] = {{ty0, ty1, "I"}, {by0, by1, "II"}};
     for (int i = 0; i < 2; i++) {
         if (wolf) {
-            // Readout cells replace the item slots; the rect still
-            // publishes so taps are swallowed instead of falling
-            // through to the page (handleSlotTap keeps them inert).
-            // No equip targets — equips are denied in wolf form
-            // anyway.
+            // Readout cells replace the item slots. No equip targets —
+            // equips are denied in wolf form anyway.
             drawWolfCornerCell(i, rx0 + morphPin * 0.5f, slots[i].y0 + morphPin * 0.5f,
                 rx1 - morphPin * 0.5f, slots[i].y1 - morphPin * 0.5f);
             s_slotBtnRect[i][0] = rx0;
@@ -859,8 +830,8 @@ void drawFunctionalSlotCorners(dMeter2Draw_c* md, f32 rx0, f32 rx1, f32 ty0, f32
         const f32 pside = px1 - px0;
         drawCornerBox(px0, py0, px1, py1, slots[i].label, showItem);
         if (showItem) {
-            // Real per-button usability: the slots are item buttons 2/3
-            // now, so Link's own polling dims them exactly like X/Y.
+            // The slots are item buttons 2/3, so Link's own usability
+            // polling dims them exactly like X/Y.
             const f32 icon = pside * 0.62f;
             drawItemIcon(ICON_SLOT_FN1 + i, item, px0 + (pside - icon) * 0.5f,
                 py0 + (pside - icon) * 0.55f, icon,
@@ -913,12 +884,9 @@ void drawFunctionalZCorner(dMeter2Draw_c* md, f32 lx0, f32 lx1, f32 by0, f32 by1
     if (midna != NULL && midnaAvailable()) {
         // Midna's own HUD portrait, so the box reads as "talk to Midna"
         // rather than a bare letter — full alpha when she wants attention,
-        // dimmed otherwise, exactly like the Cinematic Z button. Sized to
-        // match the X/Y buttons' equipped-item icon (FN_BTN * 0.74).
-        // Square box: drawPaneComposite fits the subtree inside it preserving
-        // aspect, so a short box was capping the portrait well under the
-        // intended size. Sized to fill the corner box like the X/Y item icons
-        // fill theirs.
+        // dimmed otherwise, exactly like the Cinematic Z button. Square box
+        // because drawPaneComposite fits the subtree preserving aspect, so a
+        // short box would cap the portrait's size.
         const f32 pw = (zx1 - zx0) * 0.92f;
         drawPaneComposite(midna, zx0 + ((zx1 - zx0) - pw) * 0.5f,
             zy0 + ((zy1 - zy0) - pw) * 0.5f, pw, pw, midnaActive ? (u8)0 : (u8)100);
@@ -928,6 +896,10 @@ void drawFunctionalZCorner(dMeter2Draw_c* md, f32 lx0, f32 lx1, f32 by0, f32 by1
     s_zBtnRect[2] = lx1;
     s_zBtnRect[3] = by1;}
 
+// The four persistent corner boxes: transform top-left, I top-right,
+// Z bottom-left, II bottom-right. Same size, chamfered, hard against the
+// screen corners. Each stays put whether or not its action is available —
+// unavailable ones dim rather than disappearing.
 void drawFunctionalCorners(dMeter2Draw_c* md, f32 w, f32 h) {
     const f32 lx0 = FN_CORNER_MARGIN;
     const f32 lx1 = lx0 + FN_CORNER;
@@ -947,11 +919,10 @@ void drawFunctionalCorners(dMeter2Draw_c* md, f32 w, f32 h) {
     drawFunctionalZCorner(md, lx0, lx1, by0, by1);
 }
 
-// Ammo count inside the button box, bottom-left, on a dark chip.
-// Ammo count centred on (cx, bottomY) — the Functional buttons are large and
-// round, so the count reads better centred under the icon than chipped into a
-// corner. drawHudNumber is TOP-anchored and its digits are digitH * 0.72 wide
-// with 0.9 advance.
+// Ammo count on a dark chip centred on (cx, bottomY) — the Functional buttons
+// are large and round, so the count reads better centred under the icon than
+// chipped into a corner. drawHudNumber is TOP-anchored and its digits are
+// digitH * 0.72 wide with 0.9 advance.
 void drawAmmoCountCentered(int ammo, f32 cx, f32 bottomY) {
     constexpr GXColor COL_CHIP = {10, 9, 7, 210};
     constexpr f32 digitH = 12.0f;
@@ -1037,9 +1008,9 @@ void drawFunctionalTopBar(f32 w) {
         drawTimgTinted(line, 0.0f, FN_TOPBAR_H - 3.0f, w, 5.0f, 150, 0x00000000u, 0xA89C74FFu);
     }
     const f32 baseline = FN_TOPBAR_H - 7.0f;
-    // The gauges span the CONTENT WINDOW's width — left edge to right edge —
-    // so they line up with the panel below them instead of drifting with
-    // whatever the FPS and battery readouts happen to occupy.
+    // The gauges span the CONTENT WINDOW's width, so they line up with the
+    // panel below and the fill alone carries the reading, independent of
+    // whatever the FPS and battery readouts occupy.
     const f32 left = FN_CORNER_MARGIN + FN_CORNER + FN_GAP;
     const f32 right = w - left;
     drawFpsReadout(8.0f, baseline);
@@ -1047,8 +1018,6 @@ void drawFunctionalTopBar(f32 w) {
     // nothing here rather than an empty glyph.
     drawBattery(w - 62.0f, (FN_TOPBAR_H - 12.0f) * 0.5f);
 
-    // The meter lane spans the content window's width — corner to corner —
-    // so the gauge's extent is fixed and the fill alone carries the reading.
     drawMeterBar(left, right, FN_TOPBAR_H * 0.5f, FN_TOPBAR_H - 10.0f, true);
 }
 
@@ -1056,11 +1025,8 @@ void drawFunctionalTopBar(f32 w) {
 // in the top-left. Persistent by design: an unavailable action dims rather
 // than vanishing, so the four corners never move.
 void drawCornerBox(f32 x0, f32 y0, f32 x1, f32 y1, const char* label, bool enabled) {
-    // A drawn beveled button — raised warm face, gold rim, top-lit edge — so
-    // the corner controls read as physical buttons distinct from the item
-    // slots. The BOX never changes (persistent chrome, the layout can't
-    // shift); only its contents dim when the action is unavailable. The
-    // press pinch is applied to the rect by the caller.
+    // Beveled so the corner controls read as physical buttons distinct from
+    // the item slots. The press pinch is applied to the rect by the caller.
     drawBeveledCornerButton(x0, y0, x1, y1, enabled);
     if (label != NULL && label[0] != 0) {
         drawText(x0 + FN_LABEL_DX, y0 + FN_LABEL_DY + FN_CORNER_LABEL, FN_CORNER_LABEL,
@@ -1091,10 +1057,9 @@ void drawFunctionalItemButtons(dMeter2Draw_c* md, f32 colX, f32 y0, f32 y1) {
     const bool equipMode = inEquipMode();
 
     // Even vertical rhythm across the whole right edge: I, X, Y, II are four
-    // equally spaced slots. y0/y1 are the I and II box CENTRES (passed in
-    // from the same geometry drawFunctionalCorners uses) — deriving them here
-    // from already-inset bounds is what previously collapsed the step until
-    // the two circles overlapped.
+    // equally spaced slots. y0/y1 are the I and II box CENTRES, passed in
+    // from drawFunctionalCorners' geometry — deriving them from already-inset
+    // bounds collapses the step until the two circles overlap.
     const f32 step = (y1 - y0) / 3.0f;
     const f32 xTop = y0 + step - FN_BTN * 0.5f;
     const f32 yTop = y0 + step * 2.0f - FN_BTN * 0.5f;
@@ -1129,10 +1094,10 @@ void drawFunctionalItemButtons(dMeter2Draw_c* md, f32 colX, f32 y0, f32 y1) {
         const f32 pby = e.by + pinch * 0.5f;
         const f32 psz = FN_BTN - pinch;
         // Circle base only — no pane composite. The composite would stamp the
-        // button's own letter in the middle of the face, and the letter now
-        // lives outside the circle so the item icon owns the face.
+        // button's own letter in the middle of the face; the letter is drawn
+        // outside the circle instead.
         drawButtonCircleBase(md, e.paneIdx, pbx, pby, psz);
-        // Touch rect for tap-to-use (the circle's bounding box).
+        // Tap-to-use rect: the circle's resting bounding box.
         s_fnXYRect[e.xy][0] = e.bx;
         s_fnXYRect[e.xy][1] = e.by;
         s_fnXYRect[e.xy][2] = e.bx + FN_BTN;

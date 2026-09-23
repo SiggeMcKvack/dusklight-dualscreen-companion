@@ -1,10 +1,8 @@
 #include "dusk/guide/image.hpp"
 
-// Vendored stb_image rather than SDL_LoadPNG_IO. SDL core decodes PNG and BMP
-// only, so every JPEG on a real walkthrough page fell through to alt text —
-// which is what "[image]" everywhere was. stb handles both formats in one
-// call, and vendoring the header beats reaching into SDL's private src/video
-// copy, which would break the moment SDL moves it.
+// Vendored stb_image rather than SDL_LoadPNG_IO: SDL core decodes PNG and BMP
+// only, and walkthrough pages are mostly JPEG. Vendoring the header beats
+// reaching into SDL's private src/video copy, which could move at any time.
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_PNG
@@ -22,23 +20,14 @@
 #include "JSystem/JUtility/JUTTexture.h"
 #include "dolphin/gx/GXEnum.h"
 
-// Runtime PNG -> drawable bridge.
+// Runtime PNG/JPEG -> ResTIMG bridge, so imported guide images can be drawn
+// by J2DPicture.
 //
-// Nothing else in the repo does this. The companion's own images are either
-// baked into BTI at build time (companion_logo.inc) or fabricated over
-// renderer-owned pixels (dRenderingMap_c::makeResTIMG). Guide images are
-// neither: they arrive as PNG at import time and have to become something
-// J2DPicture can draw.
-//
-// Two decisions make it cheap:
-//
-//  * GX_TF_RGBA8_PC takes LINEAR RGBA8 and uploads directly. The GameCube
-//    RGBA8 format is 4x4-tiled and there is no linear->GX tiler anywhere in
-//    this tree, so writing one would have been the bulk of the work. The PC
-//    format sidesteps it entirely.
+//  * GX_TF_RGBA8_PC takes linear RGBA8 and uploads directly, avoiding the
+//    GameCube's 4x4-tiled RGBA8 layout (there is no linear->GX tiler here).
 //  * The header and the pixels live in ONE allocation, because ResTIMG's
 //    imageOffset is a byte delta from the header itself (see makeResTIMG in
-//    d_map_path.cpp). Two allocations would make that offset meaningless.
+//    d_map_path.cpp).
 
 namespace dusk::guide {
 namespace {
@@ -176,9 +165,8 @@ bool store_image_file(const std::string& bytes, const std::filesystem::path& out
         *o_height = probe.height;
     }
     // Temp + rename, like every other write in the store. The import worker
-    // writes these while the game thread reads them: a read landing mid-write
-    // got a truncated JPEG, stb failed, and the reader cached an EMPTY blob
-    // against that ref — so a transient race became a permanent "[image]".
+    // writes these while the game thread reads them, and a read landing
+    // mid-write would cache an empty blob for that ref permanently.
     std::error_code ec;
     std::filesystem::create_directories(outFile.parent_path(), ec);
     std::filesystem::path tmp = outFile;

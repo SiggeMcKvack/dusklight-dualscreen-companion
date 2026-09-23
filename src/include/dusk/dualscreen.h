@@ -2,20 +2,13 @@
 
 #include <cstdint>
 
-// Companion frame capture (the on-device screenshot aid). OFF by default: it
-// is a development tool, and its Android trigger is a broadcast receiver that
-// has to be exported to be reachable from `adb`, so it must not ship.
+// Companion frame capture (the fork's on-device screenshot aid; not ported,
+// so nothing here reads this yet). OFF by default: its Android trigger is an
+// exported broadcast receiver, so it must not ship.
 //
-// Flip to 1 (here or with -DDUSK_COMPANION_CAPTURE=1) to build it in; that is
-// the intended way to use it, since build-dusklight-apk.sh produces a RELEASE
-// apk and there is no separate debug build of these files.
-//
-// NOTE: do NOT write `DEBUG` here. Every dusk translation unit compiles with
-// NDEBUG=1 and no -DDEBUG, and include/global.h:31 then defines DEBUG as 0 —
-// so `#define DUSK_COMPANION_CAPTURE DEBUG` was silently 0 in *every* build
-// and compiled the whole feature away, including the JNI entry point the
-// Android receiver calls (it failed with UnsatisfiedLinkError and a swallowed
-// log line, which is exactly why it went unnoticed).
+// Do NOT define this as `DEBUG`: dusk builds with NDEBUG and no -DDEBUG, and
+// include/global.h then defines DEBUG as 0, silently compiling the feature
+// away.
 #ifndef DUSK_COMPANION_CAPTURE
 #define DUSK_COMPANION_CAPTURE 0
 #endif
@@ -23,30 +16,23 @@
 namespace dusk::dualscreen {
 
 // Renders the companion dashboard (HUD, map, inventory, ...) into an offscreen
-// texture for the second screen when game.dualScreen is enabled. Call from
-// mDoGph_Painter, bracketing the 2D draw-list flush; the dashboard is drawn
-// during endHudCapture, after the main screen's own 2D pass.
+// texture for the second screen when game.dualScreen is enabled. Called from
+// the BEFORE/AFTER_HUD stage hooks, bracketing the 2D draw-list flush; the
+// dashboard is drawn during endHudCapture, after the main screen's own 2D pass.
 void beginHudCapture();
 void endHudCapture();
 
-
 // Report whether a physical second display exists (Android reports this
-// from its DisplayManager; defaults to available on desktop). When
-// unavailable, the dual-screen setting is inert and the HUD stays on the
-// main screen.
+// from its DisplayManager; unavailable until reported). When unavailable,
+// the dual-screen setting is inert and the HUD stays on the main screen.
 void setDisplayAvailable(bool available);
 // Native size of the bottom panel surface (0 when none); drives the canvas aspect.
 void setSurfaceSize(uint32_t width, uint32_t height);
 // Drop the retained last frame (mod shutdown).
 void shutdown();
 
-// Android: copy the Swap Screens setting into SharedPreferences, where
-// DuskLauncherActivity can read it. The launcher has to choose a display
-// BEFORE the native library exists, so it cannot ask the config — and having
-// Java parse config.json instead would duplicate the data-folder path logic,
-// which is exactly the drift that once sent saved guide pages somewhere the
-// importer never looked. One-way mirror; config.json stays authoritative.
-// No-op off Android.
+// Fork API: mirrored the Swap Screens setting into Android SharedPreferences
+// for the launcher. The swap-screens mirror is not ported, so this is a no-op.
 void publishSwapPreference(bool swapped);
 
 // True when the HUD actually lives on the second screen this frame: the

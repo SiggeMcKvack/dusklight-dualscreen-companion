@@ -507,8 +507,6 @@ void shutdown() {
     g_bootstrapped.store(false);
     g_vm.store(nullptr);
 }
-// (Method ids cached in vibrate() are per-class; the library is reloaded fresh on re-enable,
-// which resets the static.)
 
 bool is_bootstrapped() {
     return g_bootstrapped.load() && g_manager != nullptr;
@@ -522,6 +520,7 @@ void vibrate(uint32_t durationMs, float amplitude) {
     if (env == nullptr) {
         return;
     }
+    // Safe to cache: the library is reloaded fresh on re-enable, which resets the static.
     static jmethodID method = nullptr;
     if (method == nullptr) {
         method = env->GetStaticMethodID(

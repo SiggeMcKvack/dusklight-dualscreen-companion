@@ -1,4 +1,4 @@
-// Game-side hooks standing in for the fork's edits to game sources (see the plan's hook table).
+// Game-side hooks standing in for the fork's edits to game sources.
 // Everything here runs on the game thread inside the hooked call.
 #include "dusk/companion.h"
 #include "dusk/dualscreen.h"
@@ -296,11 +296,7 @@ HookAction on_pikari_pre(ModContext*, void* args, void*, void*) {
     return HOOK_CONTINUE;
 }
 
-// Functional keeps only A and B on the main screen: shift the pair as a group up into the
-// top-right corner (same delta for both, preserving their vanilla diagonal). Idle-cluster
-// state only. This Dusklight version applies the positions every presentation frame through
-// presentButtonA/B (drawButtonA/B no longer position anything on PC), so the shift goes on the
-// present args: (posX, posY, textPosX, textPosY, scale).
+// States in which A keeps its vanilla position (hawk, grass whistle, meter status 0x100).
 bool a_aiming() {
     daPy_py_c* player = daPy_getPlayerActorClass();
     dMeter2_c* meter = dMeter2Info_getMeterClass();
@@ -308,6 +304,10 @@ bool a_aiming() {
            (player != NULL && (player->checkHawkWait() || player->checkGrassWhistle()));
 }
 
+// Functional keeps only A and B on the main screen: shift the pair as a group up into the
+// top-right corner (same delta for both, preserving their vanilla diagonal). Idle-cluster
+// state only. On PC the positions are applied every frame through presentButtonA/B, so the
+// shift goes on the present args: (posX, posY, textPosX, textPosY, scale).
 HookAction on_present_a_pre(ModContext*, void* args, void*, void*) {
     auto* md = ::mods::arg<dMeter2Draw_c*>(args, 0);
     if (dualscreen::mainHudRestored() && idleCluster(md) && !a_aiming()) {
@@ -345,8 +345,8 @@ HookAction on_icon_alpha_pre(ModContext*, void* args, void*, void*) {
 
 // ---- dMeter2_c ----
 
-// The companion reads the meter global every frame; stale pointers crashed on stage
-// transitions in the fork before these two.
+// The companion reads the meter globals every frame; clear them across create/delete so stale
+// pointers can't crash stage transitions.
 HookAction on_meter2_create_pre(ModContext*, void* args, void*, void*) {
     ::mods::arg<dMeter2_c*>(args, 0)->mpMeterDraw = NULL;
     return HOOK_CONTINUE;

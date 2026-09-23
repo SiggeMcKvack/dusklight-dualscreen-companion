@@ -12,7 +12,7 @@
 namespace dsc::slots {
 // Game thread, after companion::beginFrameCompanionInput().
 void update();
-// Pad button bits (PAD_BUTTON_X / PAD_BUTTON_Y) to hold this frame for the pad-read hook.
+// Pad button bits (PAD_BUTTON_Y while slot II is held) for the pad-read hook to hold this frame.
 uint32_t pad_hold_mask();
 void shutdown();
 }

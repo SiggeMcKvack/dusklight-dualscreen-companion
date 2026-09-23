@@ -72,7 +72,7 @@ int countSkills() {
 }
 
 // Rows 1-3: swords (2), shields (2), clothes (3) — tap to equip. The worn
-// piece gets an accent underline. Publishes the box geometry (s_gearBox*)
+// piece gets the selected-item yellow box. Publishes the box geometry (s_gearBox*)
 // for the touch hit tests.
 void drawGearBoxes(f32 x0, f32 y0, f32 gearS, f32 gap) {
     const u8 curSword = dComIfGs_getSelectEquipSword();
@@ -97,7 +97,6 @@ void drawGearBoxes(f32 x0, f32 y0, f32 gearS, f32 gap) {
         s_gearBoxY[i] = by;
         const u8 itemNo = gearItemFor(i);
         const bool worn = itemNo == curSword || itemNo == curShield || itemNo == curClothes;
-        // Worn gear gets the same bright-yellow box as a selected item.
         drawMenuBox(bx, by, bx + gearS, by + gearS, worn ? 0xECD054FFu : CELL_RGBA);
         drawItemIcon(ICON_SLOT_EQUIP0 + i, itemNo, bx + 3.0f, by + 3.0f, gearS - 6.0f,
             dComIfGs_isItemFirstBit(itemNo) ? 0xFF : 55);
@@ -140,8 +139,7 @@ void drawHeartPieceProgress(f32 leftEdge, f32 x1, f32 blockTop, f32 blockBottom,
 void drawCounterGrid(f32 x0, f32 x1, f32 rowY, f32 rowH, f32 rowGap) {
     const f32 gap = 14.0f;
     const f32 cellW = (x1 - x0 - 2.0f * gap) / 3.0f;
-    // Keep a real margin inside the cell: at 30 the taller art (quiver) sat
-    // hard against the chamfered frame.
+    // Margin inside the cell, or the tall quiver art touches the chamfered frame.
     const f32 icon = rowH - 18.0f;
     const int arrowMax = dComIfGs_getArrowMax();
     const int quiverIdx = RAWICON_YADUTU1 + (arrowMax >= 100 ? 2 : arrowMax >= 60 ? 1 : 0);
@@ -226,9 +224,9 @@ void drawCounterGrid(f32 x0, f32 x1, f32 rowY, f32 rowH, f32 rowGap) {
         }
         }
         drawText(ix + icon + textPad, cy + rowH * 0.5f + 5.0f, 14.0f, TEXT_MAIN, "%s", text);
-        // Not while the section zoom is travelling: cx/cy here are the
-        // interpolated underlay geometry, so a second tap during the ~170ms
-        // animation re-opened whichever cell had drifted under the finger.
+        // Not while the section zoom is travelling: cx/cy are then the
+        // interpolated underlay geometry, and a tap would re-open whichever
+        // cell had drifted under the finger.
         if (rectIdx >= 0 && !collectZoomActive()) {
             s_collectIconRects[rectIdx][0] = cx;
             s_collectIconRects[rectIdx][1] = cy;
@@ -245,7 +243,6 @@ void drawScentAndShadowRow(f32 x0, f32 x1, f32 rowY, f32 rowH) {
     const f32 gap = 14.0f;
     const f32 half = (x1 - x0 - gap) * 0.5f;
 
-    // Scent panel.
     drawMenuBox(x0, rowY, x0 + half, rowY + rowH, CELL_RGBA);
     const u8 scent = dComIfGs_getCollectSmell();
     int scentSlot;
@@ -306,8 +303,6 @@ void drawScentAndShadowRow(f32 x0, f32 x1, f32 rowY, f32 rowH) {
 }
 
 void drawCollectOverview(f32 x0, f32 y0, f32 x1, f32 y1) {
-    // Rows 1-3: swords / shields / clothes with the big heart beside them;
-    // row 4: quiver, poe, skills, letters; row 5: Scent and Fused Shadows.
     // Compact enough that the equip feedback line below row 5 stays inside
     // the window.
     const f32 gearS = 50.0f;
@@ -317,7 +312,6 @@ void drawCollectOverview(f32 x0, f32 y0, f32 x1, f32 y1) {
     const f32 blockBottom = blockTop + 3.0f * gearS + 2.0f * gap;
     drawGearBoxes(gearX, blockTop, gearS, gap);
     drawHeartPieceProgress(gearX + 2.0f * (gearS + gap), x1, blockTop, blockBottom, 132.0f);
-    // Rows 4/5 sit inset from the window edges for breathing room.
     const f32 rowInset = 16.0f;
     const f32 row4 = blockBottom + 8.0f;
     drawCounterGrid(x0 + rowInset, x1 - rowInset, row4, 44.0f, 8.0f);
@@ -371,12 +365,10 @@ void drawCollectFish(f32 x0, f32 y0, f32 x1) {
             dComIfGs_isItemFirstBit(dItemNo_FISHING_ROD_1_e) ? 0xFF : 55);
     }
     // Species names from the game's own message archive, so they follow the
-    // language. Order is the SAVE-DATA index (the one getFishNum takes) and is
-    // copied from d_menu_fishing.cpp's name_id[] — which pairs name_id[i] with
-    // getFishNum(i). The old hardcoded table had a different order and so
-    // mislabelled indices 0, 1 and 5.
+    // language. Order is the SAVE-DATA index (the one getFishNum takes),
+    // copied from d_menu_fishing.cpp's name_id[], which pairs name_id[i] with
+    // getFishNum(i).
     static const u16 l_fishMsg[6] = {0x59E, 0x59D, 0x59B, 0x599, 0x59A, 0x59C};
-    // Table: Species | Caught | Record.
     const f32 availW = x1 - x0;
     const f32 colName = x0 + 10.0f;
     const f32 colCaught = x0 + availW * 0.58f;
@@ -424,12 +416,9 @@ bool skillLearned(int i) {
 
 void pushReaderRect(f32 x0, f32 y0, f32 x1, f32 y1, int id) {
     // Nothing is tappable while a detail is travelling. The list is still
-    // DRAWN underneath (it pops down), so without this its rows publish live
-    // rects: a tap where another row happens to sit mid-animation re-targeted
-    // the reader and re-popped it from the shrunken underlay geometry. It also
-    // stops the underlay's rows eating the 12-rect budget and silently
-    // dropping the detail's own "< Back". The page transition guards the same
-    // way via s_pageSliding.
+    // drawn underneath (it pops down), so its rows would otherwise publish
+    // rects at the shrunken underlay geometry — re-targeting the reader — and
+    // eat the 12-rect budget, silently dropping the detail's own "< Back".
     if (readerZoomActive() || collectZoomActive()) {
         return;
     }
@@ -444,12 +433,6 @@ void pushReaderRect(f32 x0, f32 y0, f32 x1, f32 y1, int id) {
     s_readerRectCount++;
 }
 
-// Shared header for every collect section and reader: the section identity
-// on the RIGHT (title right-aligned immediately before its icon), and — in
-// a DETAIL view only — a "< Back" plate on the LEFT that steps out to the
-// entry list (id -4). List views carry no header button: the left-column
-// context tab is the way home, and rows are opened by tapping them.
-// Returns the icon's left edge; the caller draws its own icon art there.
 // "<localized section name>  <have>/<total>". The count is appended rather
 // than interpolated: the game's own title strings are bare nouns, and number
 // placement varies by language, so a trailing count is the safe form.
@@ -470,10 +453,16 @@ const char* readerSectionName(int tab) {
     return localizedWord(0x04C8, "Mail");
 }
 
+// Shared header for every collect section and reader: the section identity
+// on the RIGHT (title right-aligned immediately before its icon), and — in
+// a DETAIL view only — a "< Back" plate on the LEFT that steps out to the
+// entry list (id -4). List views carry no header button: the left-column
+// context tab is the way home, and rows are opened by tapping them.
+// Returns the icon's left edge; the caller draws its own icon art there.
 f32 drawSectionHeader(f32 x0, f32 y0, f32 x1, f32 iconSize, f32 titleSize, const char* title,
     bool detail) {
-    // "< Back" plate geometry, shared by the plate itself and by the title's
-    // left limit below.
+    // Shared by the plate and the title's left limit, so widening the plate
+    // can't slide the right-aligned title underneath it.
     constexpr f32 BACK_PLATE_X = 2.0f;
     constexpr f32 BACK_PLATE_W = 78.0f;
     if (detail) {
@@ -494,9 +483,6 @@ f32 drawSectionHeader(f32 x0, f32 y0, f32 x1, f32 iconSize, f32 titleSize, const
     // Right-aligned, growing leftward — so it has to stop before the "< Back"
     // plate in a detail view, and before the window edge otherwise. German
     // section names ("Verborgene F\xE4higkeiten  3/7") overrun both.
-    // Derived from the Back plate, not hand-tuned to match it: the two were
-    // 78 and 88 in separate scopes, so widening the plate would have slid the
-    // right-aligned title silently underneath it.
     const f32 leftLimit = x0 + (detail ? BACK_PLATE_X + BACK_PLATE_W + 8.0f : 6.0f);
     const f32 titleMax = (iconX - 8.0f) - leftLimit;
     const f32 ts = fittedTextSize(titleSize, titleSize - 3.0f, titleMax, title);
@@ -546,9 +532,8 @@ MsgTint msgIconTint(int idx) {
     return {0x00000000u, 0xFFFFFFFFu};
 }
 
-// Names come straight from the game's own table so this can't drift: the
-// hand-copied 20-entry version silently dropped every icon past the button
-// block (lock-on reticles, hearts, bullets).
+// Names come straight from the game's own table so every index past the
+// button block (lock-on reticles, hearts, bullets) resolves too.
 const ResTIMG* msgIconTimg(int idx) {
     if (idx < 0 || idx >= MSG_ICON_MAX) {
         return NULL;
@@ -610,12 +595,10 @@ f32 walkBodyText(const char* s, f32 ts, bool i_draw, f32 x, f32 y, u32 rgba) {
     return x - startX;
 }
 
-// Width of a body segment: text runs measured, icon markers at fixed width.
 f32 bodyTextWidth(const char* s, f32 ts) {
     return walkBodyText(s, ts, false, 0.0f, 0.0f, 0);
 }
 
-// Draw a body line at (x, y-baseline): text runs plus inline icons.
 void drawBodyText(f32 x, f32 y, f32 ts, u32 rgba, const char* s) {
     walkBodyText(s, ts, true, x, y, rgba);
 }
@@ -666,10 +649,9 @@ void wrapBody(const char* body, f32 width, f32 ts) {
     bool newPara = true;
     while (*p != 0 && s_bodyLineCount < 64) {
         if (*p == '\n') {
-            // A blank line is a deliberate paragraph break, and it has to be
-            // read off the SOURCE. Inferring it from `cur` only worked while
-            // every newline flushed the line; now that they are swallowed
-            // `cur` is still populated, and the break was being eaten.
+            // A blank line is a deliberate paragraph break. Read it off the
+            // SOURCE: newlines are swallowed below, so `cur` can still be
+            // populated here.
             const char* scan = p + 1;
             while (*scan == ' ') {
                 scan++;
@@ -694,9 +676,8 @@ void wrapBody(const char* body, f32 width, f32 ts) {
             // The source strings are hard-wrapped for the game's dialog box,
             // which is far narrower than this column, so obeying every break
             // leaves ragged half-lines mid-sentence. Only break where the
-            // line actually ends a sentence; otherwise swallow the newline
-            // and let the wrapper decide, which is what the space-joining
-            // path below does for the next word.
+            // line actually ends a sentence (or a bullet follows); otherwise
+            // swallow the newline and let the wrapper decide.
             const char* tail = cur;
             char last = 0;
             while (*tail != 0) {
@@ -710,12 +691,8 @@ void wrapBody(const char* body, f32 width, f32 ts) {
                 peek++;
             }
             const bool sentenceEnd = last == '.' || last == '!' || last == '?';
-            // Only a following bullet forces the break. Breaking on every
-            // newline while inside an item was wrong: a bullet anywhere in a
-            // description made the rest of it break at each source line, so
-            // running text split mid-sentence ("almost" / "anything"). The
-            // hanging indent already carries the item's shape; the text
-            // itself should reflow.
+            // Inside a bullet item the text still reflows; the hanging
+            // indent carries the item's shape.
             if (isBulletMarker(peek) || sentenceEnd) {
                 pushBodyLine(cur, curIndent);
                 cur[0] = 0;
@@ -745,11 +722,10 @@ void wrapBody(const char* body, f32 width, f32 ts) {
             p++;
         }
         if (wl == 0) {
-            // Nothing scanned, so the cursor was sitting on whitespace: the
-            // source indents lines for the game's centred dialog box, and
-            // since a swallowed newline leaves that indentation in place,
-            // every one of those spaces would otherwise append an empty word
-            // — i.e. a stray space each — to the line being built.
+            // Cursor was on whitespace: the source indents lines for the
+            // game's centred dialog box, and a swallowed newline leaves that
+            // indentation in place. Skip it rather than appending an empty
+            // word (a stray space) per character.
             continue;
         }
         if (newPara) {
@@ -777,7 +753,6 @@ void wrapBody(const char* body, f32 width, f32 ts) {
     }
 }
 
-// Ordinal labels for the skills rows and reader header.
 const char* skillOrdinal(int i) {
     // The game's own ordinals ("Skill One"..."Last Skill"), msg 1701 + i — same
     // order as l_skillName, verified against d_menu_skill.cpp:634.
@@ -786,10 +761,6 @@ const char* skillOrdinal(int i) {
     if (i < 0 || i >= 7) {
         return "";
     }
-    // The old version latched `loaded = true` before fetching and returned the
-    // buffer raw, so a single draw before the archive was resident left all
-    // seven labels blank for the rest of the session. archiveText falls back to
-    // real text instead of an empty string.
     return archiveText(1701 + i, l_fallback[i]);
 }
 
@@ -841,8 +812,6 @@ void drawReaderDetail(int tab, f32 x0, f32 y0, f32 x1, f32 y1) {
         s_scrollBody = 0.0f;
         return;
     }
-    // Header: "< Collect" jumps straight home even from the reader; the
-    // section identity sits on the right so it never fights the shortcut.
     const f32 hIcon = 20.0f;
     const f32 iconX =
         drawSectionHeader(x0, y0, x1, hIcon, 12.0f, readerSectionName(tab), true);
@@ -887,14 +856,9 @@ void drawReaderDetail(int tab, f32 x0, f32 y0, f32 x1, f32 y1) {
 
 // Skills tab: all seven techniques, three columns — scroll icon, ordinal,
 // technique name (??? until learned). Tap a learned row to read it.
-// The list itself. Split from drawSkillsContent so it can be drawn UNDERNEATH a
-// detail that is still travelling — see below.
 void drawSkillsList(f32 x0, f32 y0, f32 x1, f32 y1);
 
-// Composes list + detail. While the detail is travelling the list stays
-// underneath and POPS DOWN — fading and easing back slightly — so the view
-// being replaced animates out instead of vanishing the instant a row is
-// tapped, and the window is never left empty mid-animation.
+// List + detail; the list pops down underneath while the detail travels.
 void drawSkillsContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     if (s_readerSel >= 0) {
         if (readerZoomActive()) {
@@ -917,10 +881,8 @@ void drawSkillsList(f32 x0, f32 y0, f32 x1, f32 y1) {
     static char names[7][64];
     static bool namesLoaded = false;
     if (!namesLoaded) {
-        // Latch only once every name actually came back. Setting the flag
-        // BEFORE the fetch meant a single draw before the archive was resident
-        // left all seven technique names blank for the rest of the session —
-        // the same trap skillOrdinal above was rewritten to avoid.
+        // Latch only once every name actually came back: a draw before the
+        // archive is resident gets empty strings.
         bool all = true;
         for (int i = 0; i < 7; i++) {
             names[i][0] = 0;
@@ -982,11 +944,8 @@ int sortedLetters(int* o_idxs) {
     int count = 0;
     for (int i = 0; i < n && count < 64; i++) {
         const int v = (int)dComIfGs_getGetNumber(n - i - 1);
-        // The RANGE matters, not just the count: v comes from save data and
-        // every consumer uses the returned value to index 64-entry caches
-        // (subj/from/cached/tries/wait in drawLettersContent). Bounding the
-        // loop alone left a corrupt or unexpected order table writing past
-        // them. The fallback below is index-generated and always in range.
+        // Range-check v, not just the count: it comes from save data and
+        // callers use it to index 64-entry caches (drawLettersList).
         if (v > 0 && v - 1 < 64) {
             o_idxs[count++] = v - 1;
         }
@@ -1004,14 +963,9 @@ int sortedLetters(int* o_idxs) {
 
 // Mail tab: three columns — letter icon, subject, sender. Newest first,
 // scrolls by drag. Tap to read.
-// The list itself. Split from drawLettersContent so it can be drawn UNDERNEATH a
-// detail that is still travelling — see below.
 void drawLettersList(f32 x0, f32 y0, f32 x1, f32 y1);
 
-// Composes list + detail. While the detail is travelling the list stays
-// underneath and POPS DOWN — fading and easing back slightly — so the view
-// being replaced animates out instead of vanishing the instant a row is
-// tapped, and the window is never left empty mid-animation.
+// List + detail; the list pops down underneath while the detail travels.
 void drawLettersContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     if (s_readerSel >= 0) {
         if (readerZoomActive()) {
@@ -1075,15 +1029,10 @@ void drawLettersList(f32 x0, f32 y0, f32 x1, f32 y1) {
             continue;
         }
         const int li = idxs[i];
-        // Latch on SUCCESS, not on attempt. dMeter2Info_c::getStringFull returns
-        // an EMPTY buffer when the message resource is not resident yet — which
-        // it routinely is not for the first frames after a stage load — and
-        // marking the row cached before looking meant a row first drawn in that
-        // window stayed blank for the rest of the session.
-        //
-        // Bounded, though: a legitimately empty subject would otherwise rescan
-        // the whole .bmg every frame forever. Same shape as the interning in
-        // companion_gfx.cpp, which exists because three sites had that bug.
+        // Latch on SUCCESS, not on attempt: getStringFull returns an EMPTY
+        // buffer while the message resource is not resident (routinely the
+        // first frames after a stage load). Retries are bounded so a
+        // legitimately empty subject doesn't rescan the .bmg every frame.
         if (!cached[li]) {
             constexpr u8 FETCH_TRIES = 8;
             constexpr u8 RETRY_GAP = 20;  // draws between attempts
@@ -1113,8 +1062,8 @@ void drawLettersList(f32 x0, f32 y0, f32 x1, f32 y1) {
             drawTimg(mailIcon, x0 + 12.0f, ry + (rowH - 28.0f) * 0.5f, 28.0f, 28.0f, 0xFF);
         }
         // Sender right-aligned, subject taking the rest. The sender is capped
-        // at 40% of the text lane: unclamped, a long localized name drove the
-        // subject's width negative and the subject disappeared from the row.
+        // at 40% of the text lane so a long localized name can't squeeze the
+        // subject to nothing.
         const f32 textX = x0 + 52.0f;
         const f32 laneW = (rx1 - 30.0f) - textX;
         f32 senderW = 0.0f;
@@ -1143,7 +1092,6 @@ void drawLettersList(f32 x0, f32 y0, f32 x1, f32 y1) {
     }
     drawListScrollHint(x1, y0, y1, s_scrollMail, maxScroll, viewH, contentH);
 }
-
 
 }  // namespace
 
@@ -1205,10 +1153,9 @@ void readerInvalidate() {
     s_fetchedSel = -2;
 }
 
-// drawLettersContent's subject/sender caches are keyed on letter COUNT alone,
-// so they survive a file change whenever the two files hold the same number of
-// letters. This is the hook that drops them; the statics themselves live in
-// that function, so the count sentinel is what gets poisoned.
+// drawLettersList's subject/sender caches would otherwise survive a file
+// change whenever both files hold the same number of letters; bumping the
+// generation drops them.
 void lettersInvalidate() {
     s_lettersCacheGen++;
 }
@@ -1221,9 +1168,6 @@ void drawCollectionContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     s_readerRectCount = 0;
     const int view = s_collectTab.load();
     if (view == 0) {
-        // Overview owns the whole window; the counter grid's bugs/fish/
-        // skills/mail cells open the sections as detail views (Back = the
-        // context tab in both modes).
         drawCollectOverview(x0, y0 + 4.0f, x1, y1);
         return;
     }
@@ -1254,19 +1198,16 @@ void drawCollectionContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     f32 ax0 = x0, ay0 = y0, ax1 = x1, ay1 = y1;
     const bool zooming = s_collectZoomT < 1.0f && s_collectZoomFrom[2] > s_collectZoomFrom[0];
     if (zooming) {
-        // The overview sits underneath while the section travels, so the grow
-        // visibly comes out of (and returns into) the tapped cell — and it
-        // POPS DOWN as it goes: it shrinks slightly and fades, instead of
-        // sitting there at full strength while something grows over it.
+        // The overview stays underneath so the grow visibly comes out of
+        // (and returns into) the tapped cell.
         drawPoppedDown(s_collectZoomT, x0, y0 + 4.0f, x1, y1, drawCollectOverview);
         const f32 t = s_collectZoomT;
         ax0 = s_collectZoomFrom[0] + (x0 - s_collectZoomFrom[0]) * t;
         ay0 = s_collectZoomFrom[1] + (y0 - s_collectZoomFrom[1]) * t;
         ax1 = s_collectZoomFrom[2] + (x1 - s_collectZoomFrom[2]) * t;
         ay1 = s_collectZoomFrom[3] + (y1 - s_collectZoomFrom[3]) * t;
-        // No panel fill while it travels — that extra background sliding over
-        // the overview is exactly what this transition should not add. The
-        // section FADES in over the overview instead.
+        // No panel fill while it travels; the section fades in over the
+        // overview instead.
         s_drawAlpha = outerA * t;
     }
     switch (view) {

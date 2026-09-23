@@ -5,7 +5,6 @@
 #include "dusk/dualscreen.h"
 #include "dusk/settings.h"
 
-
 #include "JSystem/J2DGraph/J2DPicture.h"
 #include "d/d_com_inf_game.h"
 #include "d/d_kankyo.h"
@@ -37,7 +36,7 @@
 namespace dusk::companion {
 
 // ---------------------------------------------------------------------------
-// Shared state — the single definition site for the externs declared in
+// Shared state — definitions for most of the externs declared in
 // companion_internal.h.
 
 std::atomic<int> s_page{PAGE_MAP};
@@ -87,22 +86,16 @@ bool s_holdReleaseReq = false;
 u8 s_denyFlash[4] = {0, 0, 0, 0};
 f32 s_pressAnim[6] = {};
 f32 s_popAnim[4] = {};
-// Detail pop: skill/mail readers and the ITEMS info reader grow out of the
-// row (or item cell) they were opened from, and shrink back into it on
-// close. Shared — only one detail can be open at a time.
-// ===== second-screen dim =====
+
+// Second-screen dim. Two independent things want to darken the companion,
+// and they must not fight: a SCENE CHANGE (load) and an EVENT (cutscene).
+// The constants were derived from frame traces of real stage changes; the
+// numbers are the evidence, so they are kept in the comments.
 //
-// Two independent things want to darken the companion, and they must not
-// fight: a SCENE CHANGE (load) and an EVENT (cutscene). Everything here was
-// derived from frame traces of real stage changes; the numbers are the
-// evidence, so they are kept in the comments.
-//
-// Phases. "Held" in the old notes is simply DOWN saturated at 1.0 — it needs
-// no state of its own, since nothing behaves differently once the ramp tops
-// out.
-//   IDLE  - no load: mirror the main screen exactly. This is the path menus
-//           and cutscenes take, and it is the one that always looked right.
-//   DOWN  - a load owns the panel: rate-limited mirror, ratcheted.
+// Phases:
+//   IDLE  - no load: mirror the main screen exactly (menus and cutscenes).
+//   DOWN  - a load owns the panel: rate-limited mirror, ratcheted. A full
+//           hold is simply DOWN saturated at 1.0.
 //   WAKE  - the load is retired: ride the game's arrival fade back up.
 enum DimPhase {
     DIM_IDLE,
@@ -247,7 +240,6 @@ u32 s_nativeH = 0;
 // ---------------------------------------------------------------------------
 // Dashboard-private helpers.
 
-
 // Horizontal meter bar with a visible track, spanning x0..x1: oxygen
 // (drowning) first, else lantern oil when allowed. Drawn rather than
 // composited from the game's meter panes: the pane track/frame alphas are
@@ -328,14 +320,11 @@ bool drawMeterBar(f32 x0, f32 x1, f32 cy, f32 barH, bool allowOil) {
     return true;
 }
 
-// Equip mode: the drop targets are rendered later by drawEquipTargets as
-// two stacked rectangles at the right edge (no overlap) — publish the rect
-// anchored at (and centered on) the diamond button. The X/Y separation
-// keeps the lanes disjoint.
-// The 56px left lane exists for Cinematic's equipped-item rectangle only.
-// Functional's round buttons ARE the drop targets (drawEquipTargets is
-// skipped), so there the accept zone matches the circle — an invisible lane
-// reaching into the content window equipped items with no ring feedback.
+// Publishes an equip drop rect anchored at the button. The 56px left lane
+// covers Cinematic's equipped-item rectangle (drawn later by
+// drawEquipTargets); Functional's round buttons ARE the drop targets, so there
+// the accept zone matches the circle — a lane would reach into the content
+// window and equip with no ring feedback.
 void publishEquipDropRect(int dropIdx, f32 x, f32 y, f32 btn) {
     const f32 lane = dusk::dualscreen::mainHudRestored() ? 0.0f : 56.0f;
     s_dropRect[dropIdx][0] = x - lane;
@@ -348,15 +337,10 @@ void publishEquipDropRect(int dropIdx, f32 x, f32 y, f32 btn) {
     s_dropRectValid = true;
 }
 
-// Shared by both HUD layouts (companion_functional.cpp draws them in the
-// 3DS top bar, the Cinematic status corner below). At namespace scope so
-// the other translation unit can reach them.
-// Device battery, right corner of the tab strip.
 // Battery glyph at (x, y) with the percentage to its RIGHT on the same row.
+// Shared by both HUD layouts' status rows.
 void drawBattery(f32 x, f32 y) {
     const int pct = s_batteryPct.load();
-    // No tap rect any more: the guide is opened from the left column's Guide
-    // page, so the battery is just a readout again.
     if (pct < 0) {
         return;
     }
@@ -364,8 +348,8 @@ void drawBattery(f32 x, f32 y) {
     const f32 bw = 26.0f;
     const f32 bh = 12.0f;
     // Callers anchor the glyph so that a two-digit percentage ends at the corner; "100%" is
-    // wider than that reservation and ran off the panel, so shift the whole readout left by
-    // the excess instead of clipping the text.
+    // wider than that reservation, so shift the whole readout left by the excess instead of
+    // running off the panel.
     char pctText[8];
     snprintf(pctText, sizeof(pctText), "%d%%", pct);
     constexpr f32 kReservedTextW = 26.0f;
@@ -391,15 +375,6 @@ void drawBattery(f32 x, f32 y) {
     drawText(x + bw + 10.0f, y + bh * 0.5f + 5.0f, 13.0f, TEXT_MAIN, "%s", pctText);
 }
 
-// Bottom-right row: [FPS] [battery glyph] [pct] — FPS only when the video
-// setting "Show FPS Counter" is set (dual-screen auto-selects Companion),
-// battery only on devices that report one.
-//
-// Returns the height the *d-pad column* has to clear, which is not the same
-// as "was anything drawn". The battery lives in the far corner (x1-66 and
-// right) while the d-pad column sits at x1-130; only the FPS text shares
-// that column. So a battery alone reserves nothing and the d-pad drops
-// alongside it rather than floating above an apparently empty row.
 // Colour-coded FPS readout at (x, baselineY). Draws only when the corner
 // setting actually points at the companion — otherwise the main screen keeps
 // it, so all five options mean something. Returns whether it drew. Shared by
@@ -437,14 +412,6 @@ int leftBoxPages(int* o_pages) {
     return n;
 }
 
-
-// --- Public API ----------------------------------------------------------
-
-// Advances the detail pop animation and, while it runs, narrows the caller's
-// rect to the animated box (drawing the box itself). Returns false exactly
-// once, on the frame a CLOSE finishes — the caller then clears its own
-// "detail is open" state. Content is suppressed until the box has room.
-// Zoom progress for the callers that draw an underlay: 1.0 = settled.
 f32 readerZoomProgress() {
     return s_readerZoomT;
 }
@@ -512,7 +479,7 @@ void readerZoomOpenFrom(f32 x0, f32 y0, f32 x1, f32 y1) {
 // The permanent context tab: selected-plate style when its action is
 // available (clickable), unselected when not; content is the resolved action.
 // Publishes s_ctxTabRect. Functional draws it in the left column; Cinematic
-// draws it at the old in-window button positions. The Floor overlay is drawn
+// draws it as an in-window button. The Floor overlay is drawn
 // separately by the caller (Functional: dashboard; Cinematic: map content).
 void drawContextTab(f32 x0, f32 y0, f32 x1, f32 y1) {
     bool clickable = false;
@@ -561,6 +528,8 @@ void drawContextTab(f32 x0, f32 y0, f32 x1, f32 y1) {
     s_ctxTabRect[3] = y1;
 }
 
+// --- Public API ----------------------------------------------------------
+
 void drawSplash(f32 w, f32 h) {
     // No dashboard, no touch pass: drop queued taps so one from the title
     // screen can't land on stale rects the first frame gameplay resumes.
@@ -572,7 +541,6 @@ void drawSplash(f32 w, f32 h) {
         drawTimg(logo, (w - s) * 0.5f, (h - s) * 0.5f, s, s, 0xFF);
     }
 }
-
 
 void setNativeCanvas(unsigned width, unsigned height, float scale) {
     s_nativeW = width;
@@ -602,15 +570,14 @@ float currentDim() {
     if (t <= 0.01f) {
         return 0.0f;
     }
-    // 216/255 was this overlay's alpha when it was painted into the picture.
-    // Keep it: full dim is deep charcoal, not pure black, so the panel reads
-    // as "asleep" rather than "switched off".
+    // Full dim is deep charcoal (216/255), not pure black, so the panel
+    // reads as "asleep" rather than "switched off".
     return t * (216.0f / 255.0f);
 }
 
 // Drop the dim to lit with no ramp. The boot/quit-to-title splash owns the
 // panel outright and has no fade of its own; without this the dashboard's
-// ratcheted level was still sitting at full when the splash handed back,
+// ratcheted level would still be at full when the splash hands back,
 // snapping a lit logo to black in one frame.
 void resetDim() {
     s_dim.phase = DIM_IDLE;
@@ -620,9 +587,8 @@ void resetDim() {
     s_dim.clearFrames = 0;
 }
 
-
 void update() {
-    // (The fork's F9 page-cycle / F12 screenshot debug keys were ImGui-driven; dropped.)
+    // No per-frame work: the fork's ImGui debug keys (page cycle, screenshot) are not ported.
 }
 
 int visiblePages(int* o_pages) {
@@ -691,7 +657,7 @@ void touchEvent(int action, float u, float v) {
         s_downOnContent = s_contentRect[2] > s_contentRect[0] && lx >= s_contentRect[0] &&
             lx <= s_contentRect[2] && ly >= s_contentRect[1] && ly <= s_contentRect[3];
         s_touchPhase.store(1);
-        // Taps still feed the legacy single-point path (tabs etc.).
+        // Taps also feed the single-point path (tabs etc.).
         s_pendingTouch.store(packed);
     } else if (action == 2) {
         s_touchPhase.store(2);
@@ -740,9 +706,6 @@ unsigned slotHoldBits() {
     return s_slotHold;
 }
 
-// I/II slot bindings live in the REAL savedata select-item indices 2/3, so
-// they persist with the game save and Link's code sees the slots as
-// ordinary item buttons.
 int slotBinding(int i_which) {
     const u8 idx = dComIfGs_getSelectItemIndex(2 + i_which);
     return idx < MAX_ITEM_SLOTS ? (int)idx : -1;
@@ -788,8 +751,6 @@ bool inEquipMode() {
         (s_dragging || s_selSlot >= 0) && !wolf && !anyMenuOpen();
 }
 
-
-
 bool consumeWarpRequest() {
     return s_warpReq.exchange(false);
 }
@@ -813,7 +774,7 @@ void requestWarpToggle() {
 // bright on every low frame. Taking the minimum over a short window fixes it —
 // a genuine full-black hold reads 1.0 on EVERY frame so it survives untouched,
 // while an alternating spike never does. Fade-INs are already a clean 30Hz
-// staircase and pass through unchanged, which is why menus always looked right.
+// staircase and pass through unchanged.
 f32 computeCover() {
     const u8 faderA = mDoGph_gInf_c::getFader() != NULL
         ? mDoGph_gInf_c::getFader()->mColor.a : 0;
@@ -856,8 +817,8 @@ void tickDim(bool armed) {
     constexpr f32 WAKE_SMOOTH = 0.22f;
     // Consecutive clear frames before a load is considered retired. A
     // multi-phase change lets `armed` blink false between phases; releasing on
-    // the first clear frame started the wake, and the next phase re-armed and
-    // ratcheted straight back up (flicker-bright / fast-dim at area edges).
+    // the first clear frame would start the wake, then the next phase re-arms
+    // and ratchets straight back up (flicker-bright / fast-dim at area edges).
     constexpr int RELEASE_DEBOUNCE = 6;
 
     const f32 cover = computeCover();
@@ -949,11 +910,10 @@ void tickDim(bool armed) {
     // ---- event (cutscene) dim ----
     // FROZEN while a transition owns the panel. It ramps at 0.05/frame — four
     // times the transition rate — and stage changes run a brief event of their
-    // own, so letting it run during a load produced a fast-dim/flicker-bright
-    // pair either side of the correct curve. Freezing (rather than clamping it
-    // down, which destroyed the ramp and flashed the panel bright at the START
-    // of a transition that interrupted a cutscene) keeps a cutscene already in
-    // progress exactly as dark as it was.
+    // own, so running it during a load produces a fast-dim/flicker-bright pair
+    // either side of the correct curve. Freezing rather than clamping it down
+    // keeps a cutscene interrupted by a load exactly as dark as it was,
+    // instead of flashing bright at the start of the transition.
     if (!transitionOwnsPanel()) {
         if (dComIfGp_event_runCheck()) {
             s_dim.eventLevel = s_dim.eventLevel > 0.95f ? 1.0f : s_dim.eventLevel + 0.05f;
@@ -966,8 +926,7 @@ void tickDim(bool armed) {
 // Per-frame ramps that ride the GAME clock (the pad's rate) rather than the
 // render clock: rejected-tap flashes, the button press-depress, the equip
 // landing pop and the wolf morph crossfade. None of them read the dim, so
-// they run before it — split out of beginFrameCompanionInput, which is an
-// input latch and should read as one.
+// they run before it.
 void tickAnimations() {
     // Rejected-tap flashes fade on the same clock as the hold plumbing.
     for (int i = 0; i < 4; i++) {
@@ -1110,7 +1069,6 @@ void resetCollectReader() {
     s_scrollMail = 0.0f;
 }
 
-// Damage cancels any open reader/detail view.
 void cancelReadersOnDamage() {
     // Taking a hit yanks the COLLECT page out of any reader/detail view:
     // reading mail is not worth dying over, and the player's next glance
@@ -1224,8 +1182,8 @@ void beginFrameCompanionInput() {
     const bool injectBlocked =
         anyMenuOpen() || dMeter2Info_getItemExplainWindowStatus() != 0;
     // Events cancel holds too: a finger resting on a button when a cutscene
-    // starts must not keep the pad bit held through it (new input is
-    // already swallowed by the dim gate).
+    // starts must not keep the pad bit held through it (new taps are
+    // already refused by handleTouch's event gate).
     if (s_holdBtn >= 0 &&
         (injectBlocked || dComIfGp_event_runCheck() ||
             (s_holdBtn < 2 && !dualscreen::mainHudRestored())))
@@ -1275,8 +1233,8 @@ void beginFrameCompanionInput() {
     // fopOvlpM_IsDoingReq (NOT IsPeek) is the load-spanning bit. The overlap
     // request runs seven phases; IsPeek only reports phases 3-4, and the
     // snapshot wipes the overworld uses signal their Done ~24 frames into a
-    // 26-frame arrival fade — so the tail of every load sat outside IsPeek
-    // and the dashboard woke onto the loading map. IsDoingReq is set inside
+    // 26-frame arrival fade — so the tail of every load falls outside IsPeek
+    // and the dashboard would wake onto the loading map. IsDoingReq is set inside
     // fopScnM_ChangeReq itself and cleared only when the overlap process is
     // finally deleted, so it brackets the entire change with no interior
     // holes. (Never call fopOvlpM_IsDone here — it CONSUMES the completion
@@ -1385,13 +1343,11 @@ int contextTabAction(bool* o_clickable) {
         } else {
             // Overworld/town: warp. Before Midna grants it the plate is drawn
             // EMPTY (drawWarpTab bails on !warpUnlocked), so it must be inert
-            // too — isFieldMapScreen alone used to make a blank plate render in
-            // SELECTED style and still fire requestWarpToggle on tap.
+            // too, even on the field map screen.
             // The field-map Z toggle (isFieldMapScreen) counts as available.
             // Any OTHER menu (start screen, item wheel, submenus) makes it
             // inert: posting setMapStatus(3) under an open menu is a state
-            // the game never reaches on its own — the retired in-map button
-            // hid itself for the same reason.
+            // the game never reaches on its own.
             action = CTX_WARP;
             clickable = warpUnlocked() &&
                 (isFieldMapScreen() || (warpAllowed() && !anyMenuOpen()));
@@ -1563,9 +1519,9 @@ void drawDashboardCinematic(dMeter2Draw_c* md, f32 w, f32 h) {
 
     // Oxygen (drowning) bar, overlaid along the window's top edge while
     // underwater. The main-screen draw is suppressed under dual-screen, so
-    // without this Cinematic had no visible oxygen meter on either screen —
-    // only the warning SFX. Oxygen only: the top bar already carries the
-    // compact oil gauge in this layout.
+    // without this Cinematic would have no visible oxygen meter on either
+    // screen. Oxygen only: the top bar already carries the compact oil gauge
+    // in this layout.
     drawMeterBar(16.0f, w - 158.0f - 16.0f, cy0 + 11.0f, 14.0f, false);
 
     // Tab bar below the content window.
@@ -1579,8 +1535,7 @@ void drawDashboardCinematic(dMeter2Draw_c* md, f32 w, f32 h) {
     // Right band, stacked bottom-up: status row, d-pad, transform button.
     // Each reports the height it used, so anything hidden (FPS off, no
     // battery, transform still locked) collapses and the rest settles
-    // downward instead of leaving a hole. With everything present the
-    // positions match the previous fixed layout.
+    // downward instead of leaving a hole.
     constexpr f32 BAND_GAP = 8.0f;
     // Wider gap above the status row: it reads as part of the tab strip.
     constexpr f32 BAND_GAP_STATUS = 23.0f;
@@ -1708,9 +1663,9 @@ void drawDashboard(float w, float h) {
     s_zBtnRect[0] = 0.0f;
     s_zBtnRect[2] = 0.0f;
     // The left info box publishes its rect from drawLeftInfoBox, which only
-    // runs in Functional. Left uncleared it stayed hit-testable in Cinematic
-    // over a ~78x104 band INSIDE the content window, swallowing COLLECT rows
-    // and the MAP page's Ooccoo and Reset buttons for the rest of the session.
+    // runs in Functional. Left uncleared it would stay hit-testable in
+    // Cinematic over a band INSIDE the content window, swallowing COLLECT rows
+    // and the MAP page's Ooccoo and Reset buttons.
     s_leftBoxRect[0] = 0.0f;
     s_leftBoxRect[2] = 0.0f;
     for (int i = 0; i < 2; i++) {
@@ -1727,15 +1682,10 @@ void drawDashboard(float w, float h) {
         // s_dmapFloorPickT belongs to the Functional in-place floor column,
         // and drawFloorColumn is the ONLY code that decays it — Cinematic
         // draws the pop-up list instead (drawFloorOverlay), which keys on
-        // s_dmapFloorPickOpen alone and never touches the ramp.
-        //
-        // So a live HUD-mode switch taken with the picker open (or still
-        // closing) strands the ramp above zero with nothing left running to
-        // bring it down. That matters because handleTouch's picker gate is
-        // `open || T > 0`, and it sits ahead of the corner buttons, the
-        // tabs and every page: a stranded ramp swallows EVERY companion tap
-        // with a cancel beep, for the rest of the session, recoverable only
-        // by switching back to Functional on a multi-floor dungeon map.
+        // s_dmapFloorPickOpen alone and never touches the ramp. A live
+        // HUD-mode switch with the picker open (or closing) would strand the
+        // ramp above zero, and handleTouch's picker gate (`open || T > 0`)
+        // sits ahead of every other target — it would swallow every tap.
         s_dmapFloorPickT = 0.0f;
         drawDashboardCinematic(md, w, h);
     }
@@ -1751,11 +1701,10 @@ void drawDashboard(float w, float h) {
     s_comboChoiceRects[1][2] = 0.0f;
     drawComboChoice();
 
-    // (The transition/load hold and the cutscene dim are NOT painted here.
-    // They are published via currentDim() and applied by the aux window to
-    // the present-time blit — see dualscreen::endHudCapture. Baking them into
-    // the picture froze the fade whenever the HUD tore down and the capture
-    // stopped refreshing.)
+    // (The transition and cutscene dims are NOT painted here: they are
+    // published via currentDim() and applied to the present-time blit — see
+    // dualscreen::endHudCapture — so the fade keeps advancing when the HUD
+    // tears down and the capture stops refreshing.)
 
     // Touch runs LAST so it hit-tests against the geometry this frame's
     // draw just published.
@@ -1764,9 +1713,7 @@ void drawDashboard(float w, float h) {
     drawDragGhost();
 
     // Cutscene: an in-flight drag dies with the lights — its release is
-    // ignored (processDragTouch) and the ghost must not float above the
-    // dim overlay, which paints before the drag pass. Live event state,
-    // matching the touch gates.
+    // ignored (processDragTouch). Live event state, matching the touch gates.
     if (dComIfGp_event_runCheck()) {
         s_dragging = false;
         s_dragSlot = -1;
@@ -1812,8 +1759,8 @@ void drawDashboard(float w, float h) {
     // they don't burst into the map view later.
     if (s_page.load() != PAGE_MAP) {
         s_mapPinchDeltaMilli.exchange(0);
-        // The floor picker is MAP furniture. A tabless page change (F9 /
-        // nextPage) skips the tap path that would close it, and Cinematic
+        // The floor picker is MAP furniture. A tabless page change
+        // (nextPage) skips the tap path that would close it, and Cinematic
         // then stops drawing (and refreshing the rects of) the overlay —
         // stale rects would swallow taps on the new page.
         s_dmapFloorPickOpen = false;

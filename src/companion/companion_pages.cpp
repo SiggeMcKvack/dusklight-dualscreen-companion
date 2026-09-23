@@ -98,13 +98,11 @@ const char* dmapFloorName(int floorNo) {
 
 // Copy a BTI out of a boot-resident archive into companion-owned storage.
 // NEVER cache a raw pointer into these archives' loaded-resource memory:
-// the game evicts it wholesale — ~dMenu_DmapBg_c runs
-// dComIfGp_getDmapResArchive()->removeResourceAll() every time the dungeon
-// map screen closes (d_menu_dmap.cpp:674), and game-over/file-select do the
-// same to Main2D — so a pointer cached across frames dangles and the next
-// companion draw uploads freed memory. That was the Android open/close-
-// dungeon-map crash (XXH64/memcpy SIGSEGVs, "unknown texture format 255",
-// vkAllocateMemory device-lost: one stale descriptor, four symptoms).
+// ~dMenu_DmapBg_c calls removeResourceAll() on the dmap archive every time
+// the dungeon map screen closes (d_menu_dmap.cpp:674), and game-over/file-
+// select do the same to Main2D, so a cached pointer dangles and the next draw
+// uploads freed memory (Android crash on dungeon-map open/close: memcpy
+// SIGSEGVs, "unknown texture format 255", Vulkan device-lost).
 // Returns NULL and never retries if the file is missing or over the cap
 // (the icon is simply not drawn); retries while the archive isn't mounted.
 constexpr u32 DMAP_ICON_BUF_BYTES = 0x1800;
@@ -206,7 +204,6 @@ void drawFloorPlateMarks(f32 tx, f32 ty, f32 tw, f32 th, int floorNo, int player
     }
 }
 
-
 // Hollow version of the player arrow, for showing Link's position on a floor
 // he is not standing on.
 //
@@ -217,21 +214,14 @@ void drawFloorPlateMarks(f32 tx, f32 ty, f32 tw, f32 th, int floorNo, int player
 // isoceles triangle the icon uses, rotated to match.
 void strokeArrow(f32 cx, f32 cy, f32 size, f32 angleDeg, f32 thickness, GXColor color) {
     const f32 h = size * 0.5f;
-    // Tip, back-left, back-right — the icon's own proportions.
-    //
-    // The tip is at +h (DOWN in canvas coords), not -h: dmapLinkIconTimg is
-    // authored pointing down at rotation 0, so a triangle built pointing up
-    // came out exactly 180 degrees from the filled icon. Measured, not
-    // guessed — drawing both at one centre and one angle put their tips
-    // 177-179 degrees apart at every angle tried, which is the signature of a
-    // constant flip rather than a rotation-sign error (that would scale with
-    // the angle).
+    // Tip, back-left, back-right — the icon's own proportions. The tip is at
+    // +h (DOWN in canvas coords): dmapLinkIconTimg is authored pointing down
+    // at rotation 0 (verified by overlaying both at several angles).
     const f32 local[3][2] = {{0.0f, h}, {-h * 0.62f, -h * 0.72f}, {h * 0.62f, -h * 0.72f}};
     // NEGATED: J2DPane::makeMatrix builds MTXRotRad(..., -mRotateZ), so the
     // solid icon path rotates by R(-angle). Both branches are handed the same
-    // cM_sht2d(rotY), so matching that sign is what keeps the hollow arrow and
-    // the filled one pointing the same way — it was mirrored, exact at 0/180
-    // and backwards at +/-90.
+    // cM_sht2d(rotY), so matching that sign keeps the hollow arrow and the
+    // filled one pointing the same way (otherwise mirrored at +/-90).
     const f32 rad = -angleDeg * 3.14159265f / 180.0f;
     const f32 cs = cosf(rad);
     const f32 sn = sinf(rad);
@@ -257,10 +247,6 @@ void strokeArrow(f32 cx, f32 cy, f32 size, f32 angleDeg, f32 thickness, GXColor 
     }
 }
 
-// Whole-floor dungeon view: contain-fit blit of the companion's live
-// dungeon-map render (companion_dmap.cpp) plus gestures, overlay icons and
-// the realtime player arrow. Returns false when the view is not available
-// so the caller falls through to the minimap.
 // Reset-view button, bottom right inside the map window. Shared by both map
 // modes, which also share the tap rect it publishes.
 void drawMapResetButton(f32 x1, f32 y1, bool viewMoved) {
@@ -369,10 +355,9 @@ f32 mapXSign() {
 // Apply this frame's pinch/drag to the dungeon render view. Consumes the
 // pending gesture deltas; dmapUpdate picks the result up next frame.
 void dmapApplyGestures(f32 drawW) {
-    // Gestures: pinch scales the real render zoom; drag pans the render
-    // center (content follows the finger). Applied by dmapUpdate next frame.
-    // All world <-> canvas math uses the LOGICAL texel size — the timg's
-    // pixel size carries the PC resolution boost.
+    // Pinch scales the real render zoom; drag pans the render center (content
+    // follows the finger). All world <-> canvas math uses the LOGICAL texel
+    // size — the timg's pixel size carries the PC resolution boost.
     const int pinchMilli = s_mapPinchDeltaMilli.exchange(0);
     if (pinchMilli != 0) {
         s_dmapZoom *= 1.0f + (f32)pinchMilli / 1000.0f;
@@ -395,13 +380,10 @@ void dmapApplyGestures(f32 drawW) {
     s_mapPanY = 0.0f;
 }
 
-
 // Floor change: a quick fade-through-dark over the map instead of the
-// texture hard-swapping under the viewer.
+// texture hard-swapping under the viewer (a true crossfade isn't worth a
+// second render target).
 void dmapFloorFadeOverlay(f32 bx, f32 by, f32 drawW, f32 drawH, int playerFloor) {
-    // Floor change: a quick fade-through-dark over the map instead of the
-    // texture hard-swapping under the viewer (double-texture crossfades
-    // aren't worth a second render target here).
     {
         static int sPrevShownFloor = -99;
         static f32 sFloorFade = 0.0f;
@@ -424,19 +406,16 @@ void dmapFloorFadeOverlay(f32 bx, f32 by, f32 drawW, f32 drawH, int playerFloor)
     }
 }
 
-
 // Floor icons and the player arrow, drawn over the rendered floor in the
 // same affine the render used.
 void dmapDrawOverlays(f32 bx, f32 by, f32 drawW, f32 drawH, int playerFloor) {
-    // World -> canvas mapping for the overlays (same affine the render used).
     const f32 pxPerTexel = drawW / (f32)DMAP_TEX_SIZE;
     const f32 mapCx = bx + drawW * 0.5f;
     const f32 mapCy = by + drawH * 0.5f;
-    // A marker whose position falls outside the rendered floor is simply not
-    // drawn. (The alternative, edge-clamping it to the border the way the
-    // pause map does, was tried and rejected: pinned markers claim positions
-    // that are not theirs.) Partially-overlapping icons are left to the
-    // scissor above, which crops them where the map genuinely ends.
+    // A marker whose position falls outside the rendered floor is not drawn,
+    // rather than edge-clamped like the pause map: pinned markers claim
+    // positions that are not theirs. Partially-overlapping icons are left to
+    // the caller's scissor, which crops them where the map genuinely ends.
     const auto onMap = [&](f32 px, f32 py) {
         return px >= bx && px <= bx + drawW && py >= by && py <= by + drawH;
     };
@@ -494,7 +473,10 @@ void dmapDrawOverlays(f32 bx, f32 by, f32 drawW, f32 drawH, int playerFloor) {
     }
 }
 
-
+// Whole-floor dungeon view: contain-fit blit of the companion's live
+// dungeon-map render (companion_dmap.cpp) plus gestures, overlay icons and
+// the realtime player arrow. Returns false when the view is not available
+// so the caller falls through to the minimap.
 bool drawDungeonMapContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     if (s_dmapSeenGen != s_dmapGen) {
         s_dmapSeenGen = s_dmapGen;
@@ -528,22 +510,18 @@ bool drawDungeonMapContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     const f32 drawW = texW * fit;
     const f32 drawH = texH * fit;
     const f32 bx = bx0 + (availW - drawW) * 0.5f;
-    // Functional: top-aligned, not centred — with the name plate gone the map
-    // is the only thing in the window, and centring a wide floor left dead
-    // space along the top edge. Cinematic still draws the name plate at the
-    // window's top-left, so it keeps the centred layout the plate was
-    // designed over.
+    // Functional: top-aligned, not centred — it has no name plate, so the map
+    // is the only thing in the window and centring would leave dead space
+    // along the top. Cinematic keeps the centred layout its top-left name
+    // plate was designed over.
     const f32 by = dusk::dualscreen::mainHudRestored()
         ? y0 : y0 + (availH - drawH) * 0.5f;
 
     dmapApplyGestures(drawW);
 
-    // Scissor the MAP RECT, not the whole available area. The texture is
-    // square and contain-fitted, so it occupies a square inset inside a
-    // non-square window: clipping to the full area let the overlays below
-    // draw in the empty band beside/under the map, which looked like markers
-    // floating outside it. Both the texture and its overlays now share one
-    // clip, so nothing can render off the map.
+    // Scissor the MAP RECT, not the whole available area: the contain-fitted
+    // square texture leaves empty bands in a non-square window, and overlays
+    // drawn there would look like markers floating off the map.
     setWinScissor(bx, by, bx + drawW, by + drawH);
     s_dmapPic->setAlpha(mulDrawAlpha(0xFF));
     s_dmapPic->draw(bx, by, drawW, drawH, false, false, false);
@@ -554,17 +532,11 @@ bool drawDungeonMapContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     applyWinClip();
     dComIfGp_getCurrentGrafPort()->setup2D();
 
-    // Reset-view button, bottom right (shared rect with the minimap mode).
     const bool viewMoved = !s_dmapFollow || s_dmapFloorSel != DMAP_FLOOR_FOLLOW;
     drawMapResetButton(x1, y1, viewMoved);
     return true;
 }
 
-// Warp button, bottom-left inside the map window — mirrors the Reset button
-// opposite it. Hidden until portal warping is unlocked; dimmed (but still
-// tappable) when the player state forbids it, exactly like the game's own
-// warp button on its map screen. A tap while dimmed is refused by the press
-// handler, which answers with the error cue.
 // The message system's portal glyph (MSGTAG_WARP_ICON), copied out of the
 // Main2D archive (game-over/file-select evict its loaded resources — same
 // dangling-pointer hazard as the dmap icons, see copyTimgOwned). Falls back
@@ -591,10 +563,9 @@ struct CellDef {
     int slot;
     u8 gx, gy, group;
 };
-// 23, not 24: the table was declared [24] with 23 initializers, so the last
-// entry was value-initialized to {slot 0, gx 0, gy 0} and redrew the first
-// cell on top of itself every frame — invisible, but it also published a
-// duplicate hit rect for slot 0 into s_invCells.
+// Must equal the initializer count exactly: a spare entry would be
+// value-initialized to {slot 0, gx 0, gy 0}, redrawing the first cell and
+// publishing a duplicate hit rect for slot 0 into s_invCells.
 constexpr int INV_CELLS = 23;
 
 constexpr CellDef l_invCells[INV_CELLS] = {
@@ -687,8 +658,8 @@ struct InvGrid {
 
 // The companion is 8:7 on a bottom panel but takes the main screen's shape
 // when the screens are swapped. On a 16:9 canvas the 5x5 grid is limited by
-// HEIGHT, so it sat small and centred with a third of the width unused; 6x4
-// spends that width on a shorter grid with bigger cells.
+// HEIGHT, leaving a third of the width unused; 6x4 spends that width on a
+// shorter grid with bigger cells.
 bool invWideLayout() {
     return s_canvasH > 0.0f && s_canvasW / s_canvasH >= 1.7f;
 }
@@ -783,11 +754,6 @@ void drawInventoryCaption(f32 x0, f32 x1, f32 y1) {
     }
 }
 
-
-
-
-
-
 }  // namespace
 
 // Warp content (portal glyph + "Warp") for the Functional context tab; the
@@ -806,15 +772,13 @@ void drawWarpTab(f32 x0, f32 y0, f32 x1, f32 y1, bool active) {
     const f32 th = y1 - y0;
     const bool portalsShown = isFieldMapScreen() && warpPortalsShown();
     const u8 iconA = active && !portalsShown ? 0xFF : 130;
-    // Icon left, label right, the group centred on one baseline — larger than
-    // the old stacked layout.
+    // Icon left, label right, the group centred on one baseline.
     constexpr f32 ICON = 28.0f;
     constexpr f32 TS = 15.0f;
     constexpr f32 GAP = 5.0f;
     // The plate is a fixed width, so a longer localized word (ES) has to
-    // shrink rather than overflow the group.
-    // NOT taken from the archive: 0x529 is a verb phrase in several languages
-    // ("Mostrar portales"), far too long for this compact plate.
+    // shrink rather than overflow the group. Not the archive's 0x529: that is
+    // a verb phrase in several languages ("Mostrar portales"), far too long.
     const char* const label = txt(STR_WARP);
     const f32 labelMax = tw - ICON - GAP - 16.0f;
     const f32 labelTS = fittedTextSize(TS, 8.0f, labelMax, label);
@@ -843,10 +807,6 @@ void drawFloorTab(f32 x0, f32 y0, f32 x1, f32 y1, bool active) {
     drawFloorPlateMarks(x0, y0, tw, th, s_dmapViewFloor, playerFloor, 26.0f);
 }
 
-// Floor-select pop-up as a rightward overlay panel: a vertical list of floor
-// plates whose top-left starts at (px, py) — the right edge of the context
-// tab. Drawn after the content window so it sits on top. Empty floors are
-// dimmed and not tappable; the rest publish their tap rects.
 // Number of selectable floors in this dungeon (capped at the rect budget).
 // One floor means there is nothing to pick, so the picker never opens.
 int dmapFloorCount() {
@@ -865,8 +825,7 @@ int dmapFloorCount() {
 // One floor row, shared by the Functional column and the Cinematic pop-up.
 // The two differ only in geometry and trim, so the row's LOGIC — which floor
 // is being viewed, which floors have been mapped, where Link is, what is
-// tappable — lives here once. It was written out in both places before, and
-// the copies had already drifted apart on chamfer, text size and baseline.
+// tappable — lives here once so the two can't drift apart.
 struct FloorRowStyle {
     f32 chamfer;
     int cornerMask;
@@ -914,8 +873,7 @@ void drawFloorRow(f32 x0, f32 y0, f32 x1, f32 y1, int floorNo, int playerFloor,
 
 // Floor picker for the Functional layout: the context tab EXPANDS IN PLACE in
 // the left column, growing up and down from the current-floor button, over one
-// continuous bed. Previously a separate panel slid out to the right, over the
-// map — which covered the thing you were choosing a floor for.
+// continuous bed — never over the map it is choosing a floor for.
 //
 // Rows are the tab's own height and width, so the button the player tapped
 // stays exactly where it was and simply gains neighbours.
@@ -976,14 +934,11 @@ void drawFloorColumn(f32 tx0, f32 ty0, f32 tx1, f32 ty1, f32 clampY0, f32 clampY
     }
 
     constexpr GXColor COL_BED = {24, 24, 22, 248};
-    // The bed grows with the list — this is the "bleed" behind the column,
-    // chamfered on the left like the panels it sits among.
     // Cover the ENTIRE left column while the picker is up: the panels behind
-    // it (Link doll, rupees, clock, dungeon keys) are neither readable nor
-    // tappable during a pick, so showing them half-buried under the bed just
-    // looked broken. Same vertical gradient as a corner button's face, so the
-    // column reads as one inert slab rather than a scrim over live chrome.
-    // Fades in with the list; touch is blocked for the same span.
+    // it are neither readable nor tappable during a pick, and half-buried
+    // under the bed they look broken. Same vertical gradient as a corner
+    // button's face, so the column reads as one inert slab. Fades in with the
+    // list; touch is blocked for the same span.
     {
         constexpr GXColor COVER_TOP = {52, 50, 46, 255};
         constexpr GXColor COVER_BOT = {31, 30, 27, 255};
@@ -997,7 +952,8 @@ void drawFloorColumn(f32 tx0, f32 ty0, f32 tx1, f32 ty1, f32 clampY0, f32 clampY
 
     // GROW: everything is interpolated from the tab's own rect (collapsed) out
     // to the full list, so the bed and the rows expand up and down together
-    // from the button that was tapped.
+    // from the button that was tapped. The bed is chamfered on the left like
+    // the panels it sits among.
     const f32 bedY0 = ty0 - pad + ((listTop - pad) - (ty0 - pad)) * openT;
     const f32 bedY1 = ty0 + rowH + pad +
         ((listTop + listH + pad) - (ty0 + rowH + pad)) * openT;
@@ -1025,15 +981,11 @@ void drawFloorColumn(f32 tx0, f32 ty0, f32 tx1, f32 ty1, f32 clampY0, f32 clampY
     }
 }
 
-
 // Floor-select pop-up for the Cinematic layout: the list DROPS STRAIGHT DOWN
 // from the context tab, taking the tab's own x-span and row height so the
-// two read as one column. (It used to be offset a row-width to the left,
-// which left it hanging beside the button it belongs to instead of under
-// it.) Takes the tab's RECT for that reason — deriving the geometry beats
-// passing a pre-offset point and hoping the two stay in step, and it mirrors
-// drawFloorColumn. Drawn after the content window so it sits on top. Empty
-// floors are dimmed and not tappable; the rest publish their tap rects.
+// two read as one column; taking the tab's RECT (as drawFloorColumn does)
+// keeps the two in step. Drawn after the content window so it sits on top.
+// Empty floors are dimmed and not tappable; the rest publish their tap rects.
 void drawFloorOverlay(f32 tx0, f32 ty0, f32 tx1, f32 ty1, f32 clampY0, f32 clampY1) {
     s_dmapFloorRectCount = 0;
     if (!s_dmapFloorPickOpen) {
@@ -1174,12 +1126,8 @@ void drawMiniMapContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     // texture keeps filling the map area while covering up to ~3x the world.
     const f32 zoomIn = s_mapZoom > 1.0f ? s_mapZoom : 1.0f;
     s_mapRenderScale = s_mapZoom < 1.0f ? 1.0f / s_mapZoom : 1.0f;
-    // Contain-fit, matching the dungeon map above. This used to take the LARGER
-    // ratio — filling the window and cropping whatever overflowed. On the 8:7
-    // bottom panel that cost almost nothing, because the map texture is roughly
-    // square and so is the window. On a 16:9 companion (screens swapped) the
-    // width ratio is far larger, so the map was scaled to fill the width and
-    // the top and bottom of the area were cut off.
+    // Contain-fit, matching the dungeon map. A cover-fit (larger ratio) would
+    // crop the top and bottom of the roughly square map on a 16:9 companion.
     const f32 fitScale = availW / texW < availH / texH ? availW / texW : availH / texH;
     const f32 scale = fitScale * zoomIn;
     const f32 drawW = texW * scale;
@@ -1194,7 +1142,6 @@ void drawMiniMapContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     applyWinClip();
     dComIfGp_getCurrentGrafPort()->setup2D();
 
-    // Reset-view button, bottom right inside the window.
     const bool viewMoved = s_mapZoom > 1.01f || s_mapZoom < 0.99f ||
         s_mapViewOffX != 0.0f || s_mapViewOffZ != 0.0f;
     drawMapResetButton(x1, y1, viewMoved);
@@ -1332,7 +1279,7 @@ void drawMapNamePlate(f32 x0, f32 y0) {
 }
 
 // Cinematic has no left column, so the context action lives as an in-window
-// button: top-right on the map (with a leftward floor overlay), bottom-right
+// button: top-right on the map (with a drop-down floor list), bottom-right
 // on items/collect. Functional draws it in the left column instead, so this
 // is a no-op there.
 void drawCinematicContextTab(f32 x0, f32 y0, f32 x1, f32 y1) {
@@ -1366,9 +1313,8 @@ void drawCinematicContextTab(f32 x0, f32 y0, f32 x1, f32 y1) {
 
 namespace {
 
-// Feedback line for the MAP page ("Can't warp from here"): the context tab
-// sets it, but no map draw rendered it — only the error sound reached the
-// user. Bottom-left, clear of the Reset button opposite; the ITEMS caption's
+// Feedback line for the MAP page ("Can't warp from here"), set by the context
+// tab. Bottom-left, clear of the Reset button opposite; the ITEMS caption's
 // metrics.
 void drawMapCaption(f32 x0, f32 y1) {
     if (s_equipMsgFrames > 0) {
@@ -1419,7 +1365,6 @@ void drawMapContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     s_dmapFloorPickOpen = false;
 }
 
-
 // Item-info reader: the ring menu's own explain text (name = itemNo +
 // 0x165, description = itemNo + 0x265 — dMenu_ItemExplain_c's mapping)
 // with inline button icons and live capacities resolved. Icon top-right
@@ -1449,8 +1394,7 @@ void drawItemInfo(f32 x0, f32 y0, f32 x1, f32 y1) {
         const int xyBtn = dComIfGp_getSelectItem(1) == itemNo ? 1 : 0;
         dMeter2Info_getStringFull(0x265 + itemNo, body, sizeof(body), xyBtn);
         // Full column: the icon sits in the header row, not beside the text,
-        // so nothing narrows the wrap. Reserving icon width here squeezed the
-        // description into a sliver on narrow companion canvases.
+        // so nothing narrows the wrap (which matters on narrow canvases).
         readerWrapBody(body, x1 - x0 - 24.0f, 14.0f);
         fetchedGen = readerBodyGen();
         readerInvalidate();
@@ -1462,8 +1406,8 @@ void drawItemInfo(f32 x0, f32 y0, f32 x1, f32 y1) {
         s_scrollItemInfo = 0.0f;
         return;
     }
-    // Header band: the icon keeps its old size but sits above the text
-    // instead of inside it, so the description still gets the full column.
+    // Header band: the icon sits above the text rather than beside it, so the
+    // description gets the full column.
     constexpr f32 HDR_ICON = 48.0f;
     constexpr f32 HDR_H = HDR_ICON + 8.0f;
     drawItemIcon(s_itemInfoSlot, itemNo, x1 - HDR_ICON - 4.0f, y0 + 2.0f, HDR_ICON);
@@ -1518,13 +1462,10 @@ void drawInventoryContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     s_itemInfoBtnRect[2] = 0.0f;
     if (s_itemInfoSlot >= 0) {
         // The grid stays underneath and POPS DOWN while the info panel
-        // travels, matching the mail/skill readers. Without it the panel grew
-        // over a bare window backdrop: the detail box that used to fill it was
-        // removed, but only the two collect readers got the compensating
-        // underlay, so ITEMS was left animating over nothing.
-        // Geometry is still marked invalid — the cells must not be tappable
-        // while they are a backdrop (pushReaderRect guards the readers the
-        // same way).
+        // travels, matching the mail/skill readers, so the panel never
+        // animates over a bare backdrop. Geometry is still marked invalid —
+        // the cells must not be tappable while they are a backdrop
+        // (pushReaderRect guards the readers the same way).
         if (readerZoomActive()) {
             drawPoppedDown(readerZoomProgress(), x0, y0, x1, y1,
                 [](f32 gx0, f32 gy0, f32 gx1, f32 gy1) {
@@ -1546,10 +1487,7 @@ void drawInventoryContent(f32 x0, f32 y0, f32 x1, f32 y1) {
         drawInvCell(grid, i);
     }
     drawInventoryCaption(x0, x1, y1);
-    // The "Info" trigger now lives in the left column's context tab; the
-    // reader view (drawItemInfo) is unchanged.
 }
-
 
 // Destroy the dungeon-map picture outright. Called when the renderer that
 // owns its ResTIMG is torn down: re-pointing it later is not enough, because

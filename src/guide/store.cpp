@@ -27,9 +27,8 @@ namespace {
 using json = nlohmann::json;
 
 // Minimal base64 decoder for inline data: images. The in-app browser embeds
-// them because zeldadungeon answers 403 to a plain client for IMAGES too, not
-// just pages — so the only thing that can fetch them is the browser already
-// rendering them.
+// them because the site answers 403 to non-browser clients for images too, so
+// only the browser already rendering them can fetch them.
 std::string base64_decode(std::string_view in) {
     static constexpr signed char kT[] = {
         62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, -1, -2, -1, -1, -1,
@@ -66,7 +65,7 @@ constexpr int kIndexVersion = 1;
 // this a converter fix is invisible to anyone who already imported — their
 // .guide files keep whatever the old code produced. On a mismatch every
 // archived source is converted again.
-constexpr int kConverterVersion = 10;  // + drops duplicate images
+constexpr int kConverterVersion = 10;
 
 // Read a whole file. Returns nullopt rather than throwing: every caller here
 // treats "missing or unreadable" as "not present", never as a hard error.
@@ -84,9 +83,8 @@ std::optional<std::string> read_file(const std::filesystem::path& p) {
     return ss.str();
 }
 
-// Temp-then-rename, mirroring config.cpp: a crash or a full disk mid-write
-// leaves the previous file intact instead of a truncated one that would fail
-// to parse on next launch.
+// Temp-then-rename: a crash or a full disk mid-write leaves the previous file
+// intact instead of a truncated one that would fail to parse on next launch.
 bool write_atomic(const std::filesystem::path& p, const std::string& data) {
     std::error_code ec;
     std::filesystem::create_directories(p.parent_path(), ec);
@@ -175,17 +173,11 @@ std::string file_digest(const std::filesystem::path& f) {
     return out;
 }
 
-// Walkthrough sites repeat pictures: a video poster frame or a section banner
-// gets emitted near the top of every section, and the importer names files per
-// NODE, so the same bytes land on disk several times under different names and
-// the reader dutifully draws each one. Two of them adjacent is the visible
-// case — the same picture stacked twice.
-//
-// Content, not filename, is the only workable key: the refs differ by
-// construction. Done here rather than at download so it also fixes stores whose
-// images are already on disk (the reconvert path re-uses them), which is why
-// the converter version bump is enough to repair an existing library without
-// re-fetching a single image.
+// Walkthrough sites repeat pictures (a video poster frame or section banner at
+// the top of every section), and the importer names files per node, so the
+// same bytes land on disk under several names. Content, not filename, is the
+// only workable key. Done here rather than at download so a reconvert also
+// cleans images already on disk.
 void drop_duplicate_images(Document& doc, const std::filesystem::path& imgDir) {
     // digest -> the file the surviving node points at. The path matters: two
     // nodes can legitimately share a ref (two source URLs ending in the same
@@ -327,7 +319,6 @@ std::optional<Document> load_document(const std::string& id) {
     return deserialize(*text);
 }
 
-
 std::string import_html_file(const std::filesystem::path& file, const std::string& sourceUrl,
     const ImageSource& netFallback) {
     const auto html = read_file(file);
@@ -387,11 +378,9 @@ std::string import_html_file(const std::filesystem::path& file, const std::strin
 std::string import_html_content(const std::string& html, const std::string& sourceUrl,
     const std::string& fallbackName, const ImageSource& images) {
     Document doc = convert_html(html, sourceUrl);
-    // Sections alone are not content. The site's chapter-index page survives
-    // conversion as a single section holding its <h1> and nothing else, once
-    // its "Chapter N - ..." headings are dropped as navigation — so counting
-    // sections filed it as a guide with 22 empty entries. Require an actual
-    // body node somewhere.
+    // Sections alone are not content (the site's chapter-index page converts
+    // to a lone <h1> once its "Chapter N" headings are dropped as navigation).
+    // Require an actual body node somewhere.
     std::size_t nodes = 0;
     for (const auto& sec : doc.sections) {
         nodes += sec.nodes.size();
@@ -399,19 +388,11 @@ std::string import_html_content(const std::string& html, const std::string& sour
     if (doc.sections.empty() || nodes == 0) {
         return {};  // nothing recognisable — do not file an empty guide
     }
-    // The site's walkthrough index page: a hub of links to the chapters. It
-    // survives everything above — its "Chapter N" links are dropped as
-    // navigation, but the rest of the page is not, so ~90 nodes remain.
-    //
-    // Content ratios do NOT separate it from a chapter (it is 69 images out of
-    // 91 nodes, which looks exactly like one). What does: it has no subheadings
-    // at all, so it converts to a single section named after the page, and its
-    // body is a link list rather than prose. Every one of the 22 saved chapters
-    // produces between 2 and 10 sections.
-    //
-    // Deliberately requires BOTH conditions. A genuine one-page walkthrough is
-    // also a single title-named section, and rejecting those outright would be
-    // wrong — so the link-list test is what actually discriminates.
+    // The site's walkthrough index page (a hub of chapter links) survives the
+    // check above. Content ratios don't separate it from a chapter; what does
+    // is a single section named after the page whose body is a link list
+    // rather than prose. Both conditions are required: a genuine one-page
+    // walkthrough is also a single title-named section.
     if (doc.sections.size() == 1 && doc.sections.front().title == doc.title) {
         std::size_t items = 0;
         std::size_t paras = 0;
@@ -447,20 +428,13 @@ std::string import_html_content(const std::string& html, const std::string& sour
         // serving us, and the browser has saved them locally anyway.
         int consecutiveFails = 0;
         constexpr int kGiveUpAfter = 5;
-        // NON-const: every ref is rewritten to the filename it is stored under.
-        // Two bugs collapse into this. (1) The reader derived the filename its
-        // own way (bare basename, no query strip, no data: handling) and
-        // disagreed with the store, so anything but a crawler-rewritten src
-        // missed forever. (2) An inlined data: URI was serialised VERBATIM into
-        // the .guide, duplicating every image as base64 and re-parsing it on
-        // every document load.
+        // Non-const: every ref is rewritten to the filename it is stored under,
+        // so the reader never re-derives names and the .guide never carries an
+        // inline data: payload.
         for (Section& sec : doc.sections) {
-            // Images are prefixed with their section: "13.1-img20.jpg". The
-            // site names them per PAGE (img1..img190), so a chapter folder was
-            // a flat run of numbers with nothing tying a file to the part of
-            // the walkthrough it illustrates. The prefix makes the folder
-            // browsable by hand, which is the whole reason it lives in external
-            // storage.
+            // Images are prefixed with their section ("13.1-img20.jpg"); the
+            // site numbers them per page, so the prefix is what makes the
+            // folder browsable by hand.
             const std::string prefix = section_number(sec.title);
             for (Node& n : sec.nodes) {
                 if (n.kind != NodeKind::Image || n.ref.empty()) {
@@ -473,11 +447,8 @@ std::string import_html_content(const std::string& html, const std::string& sour
                 }
                 const std::string file = prefix.empty() ? bare : prefix + "-" + bare;
                 const std::filesystem::path dest = imgDir / file;
-                // Upgrade in place. An existing library is already on disk
-                // under the unprefixed name, and re-fetching it is not an
-                // option — the site refuses image requests from anything that
-                // is not a browser, so the alternative is losing every picture
-                // until the user re-saves all 22 chapters by hand.
+                // Upgrade an unprefixed file in place: re-fetching is not an
+                // option, since the site refuses non-browser image requests.
                 if (!prefix.empty()) {
                     std::error_code mec;
                     if (!std::filesystem::exists(dest, mec) &&
@@ -485,9 +456,8 @@ std::string import_html_content(const std::string& html, const std::string& sour
                     {
                         std::filesystem::rename(imgDir / bare, dest, mec);
                         if (mec) {
-                            // Silently this reads as "the picture disappeared":
-                            // the ref now points at a name that is not there and
-                            // the reader falls back to alt text.
+                            // Otherwise this silently reads as "the picture
+                            // disappeared" (the reader falls back to alt text).
                             DuskLog.warn("guide image {} could not be renamed to {}: {}",
                                 bare, file, mec.message());
                         }
@@ -499,12 +469,8 @@ std::string import_html_content(const std::string& html, const std::string& sour
                 const std::string origRef = n.ref;
                 n.ref = file;
                 if (std::filesystem::exists(dest, iec)) {
-                    // Have the bytes already, but still need the size: this
-                    // branch used to `continue` outright, so a re-import of a
-                    // page whose images were on disk recorded 0x0 for every
-                    // one of them and the reader reserved a single line of
-                    // alt-text height where a 400px screenshot was about to
-                    // draw. Header parse only, no decode.
+                    // Bytes already on disk, but the reader still needs the
+                    // size to reserve layout height. Header parse only.
                     dusk::guide::probe_image_size(dest, &n.imgW, &n.imgH);
                     continue;
                 }
@@ -610,10 +576,8 @@ int scan_import_folder(const ImageSource& netFallback) {
     int count = 0;
     std::vector<std::filesystem::path> pending;
 
-    // Both scans below use this. They used to disagree -- the live folder
-    // required .html/.htm while the archive accepted any regular file, so a
-    // stray .tmp or a note dropped into done/ was handed to the converter on
-    // every re-convert.
+    // Shared by both scans below, so a stray .tmp or note in done/ is never
+    // handed to the converter.
     auto is_page = [](const std::filesystem::directory_entry& de) {
         if (!de.is_regular_file()) {
             return false;
@@ -625,14 +589,10 @@ int scan_import_folder(const ImageSource& netFallback) {
         return ext == ".html" || ext == ".htm";
     };
 
-    // Converter moved on: bring the archived sources back through it. Cheap to
-    // detect, and it means a parser fix actually reaches existing guides
-    // instead of only new ones.
-    // Before anything reads the catalogue: if the data folder moved, the store
-    // has to come with it or this scan sees an empty one and re-imports from
-    // scratch (or, worse, finds nothing to import and reports no guides).
     migrate_store_if_needed();
 
+    // Converter moved on: bring the archived sources back through it, so a
+    // parser fix reaches existing guides instead of only new ones.
     const bool reconverting = load_index().converter < kConverterVersion;
     if (reconverting) {
         for (const auto& de : std::filesystem::directory_iterator(dir / "done", ec)) {
@@ -682,11 +642,8 @@ int scan_import_folder(const ImageSource& netFallback) {
         const bool suspect = idx.entries.empty() &&
             std::filesystem::exists(guides_root() / kIndexFile, sec);
         // A re-convert regenerates every archived source, so anything left in
-        // the catalogue that this pass did NOT produce is stale: its page no
-        // longer converts to anything (the site's chapter-index page is the
-        // real case — it is pure navigation and now yields no sections), or
-        // its source is gone. Without this, a converter fix could stop
-        // creating a bad guide but could never remove one already stored.
+        // the catalogue that this pass did not produce is stale: its page no
+        // longer converts to anything, or its source is gone.
         //
         // Gated on having produced something, so a pass that failed wholesale
         // — unreadable directory, no sources archived — never empties the
@@ -705,11 +662,8 @@ int scan_import_folder(const ImageSource& netFallback) {
                     std::filesystem::remove_all(images_dir(e.id), rec);
                 }
             }
-            // Assigned UNCONDITIONALLY. Guarding this on "did anything
-            // change" was wrong and self-inflicted: the loop above moves every
-            // surviving entry into `kept`, so skipping the assignment left
-            // idx.entries holding moved-from husks with empty ids — which then
-            // got saved, wiping the catalogue.
+            // Assigned unconditionally: the loop above moved every surviving
+            // entry out of idx.entries, leaving moved-from husks behind.
             idx.entries = std::move(kept);
         }
         if (!suspect && (count > 0 || idx.converter < kConverterVersion)) {

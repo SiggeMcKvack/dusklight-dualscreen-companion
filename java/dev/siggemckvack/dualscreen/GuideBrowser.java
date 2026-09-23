@@ -26,16 +26,15 @@ import java.nio.charset.StandardCharsets;
  * In-app browser for grabbing a walkthrough page.
  *
  * <p>Why a WebView: the sites worth reading sit behind bot protection that
- * answers a plain HTTP client with 403 — verified against zeldadungeon.net,
- * which refuses even robots.txt. A WebView is not a workaround for that, it IS
- * a browser, so it is served normally. No User-Agent is spoofed here.
+ * answers a plain HTTP client with 403 (zeldadungeon.net refuses even
+ * robots.txt). A WebView is a real browser, so it is served normally. No
+ * User-Agent is spoofed here.
  *
- * <p>Why an OVERLAY rather than its own Activity: starting an Activity sends
- * DuskActivity through onPause, which calls dismissAux() and tears the
- * second-screen Presentation down underneath a render worker that may be
- * presenting to it. That froze the game. Adding the WebView to the existing
- * Activity's content view keeps the game running, the aux display attached,
- * and SDL out of its pause/resume path entirely.
+ * <p>Why an overlay rather than its own Activity: starting an Activity sends
+ * the game activity through onPause, which dismisses the second-screen
+ * Presentation (see CompanionManager) underneath a render worker that may be
+ * presenting to it. Adding the WebView to the existing Activity keeps the game
+ * running, the second display attached, and SDL out of its pause/resume path.
  */
 public final class GuideBrowser {
 
@@ -43,9 +42,9 @@ public final class GuideBrowser {
 
     private static FrameLayout sRoot;
     private static final java.util.ArrayList<String> sQueue = new java.util.ArrayList<>();
-    private static int sQueueAt = -1;
+    private static int sQueueAt = -1;  // -1 = not crawling
     // See onPageFinished: guards against parallel settle chains.
-    private static int sSettleGen = 0;      // -1 = not crawling
+    private static int sSettleGen = 0;
     private static int sSaved;
     // A walkthrough is tens of pages, not hundreds; the cap stops a bad link
     // filter from walking an entire site.
@@ -56,11 +55,10 @@ public final class GuideBrowser {
      * Side channel for image bytes.
      *
      * <p>They must NOT ride inside the DOM: evaluateJavascript returns its
-     * result as one JSON string, and a chapter with ~20 inlined photos is
-     * megabytes. Android truncates results that large, which silently cut the
-     * saved page short and lost the walkthrough text. Each image is handed
-     * over separately here and written to <stem>_files, which is exactly the
-     * layout a browser "save page" produces and the importer already reads.
+     * result as one JSON string, and Android truncates results as large as a
+     * chapter with inlined photos, cutting the saved page short. Each image is
+     * handed over separately here and written to <stem>_files, the layout a
+     * browser "save page" produces and the importer already reads.
      */
     public static final class Bridge {
         private final Activity host;
@@ -73,7 +71,7 @@ public final class GuideBrowser {
                 if (comma < 0 || sAssetStem == null) {
                     return;
                 }
-                    // `name` arrives from JavaScript, and addJavascriptInterface
+                // `name` arrives from JavaScript, and addJavascriptInterface
                 // exposes this to EVERY frame of every page loaded — including
                 // third-party iframes. Unsanitised it is an arbitrary-file-write
                 // primitive: new File(dir, "../../../x") resolves normally, and
@@ -113,9 +111,9 @@ public final class GuideBrowser {
 
     /**
      * MUST be called when the mod shuts down (CompanionManager.stop): sRoot/sWebView are static
-     * and hold the Activity, so without this a destroyed Activity leaks AND
+     * and hold the Activity, so without this a destroyed Activity leaks and
      * show() sees a non-null sRoot on relaunch into the same process and
-     * returns "already open" forever (see show()).
+     * returns "already open" forever.
      */
     public static void shutdown() {
         teardown();  // no reapplyImmersive: the Activity is going away
@@ -124,11 +122,8 @@ public final class GuideBrowser {
     /**
      * Absolute path of the guide store, as the NATIVE side computes it.
      *
-     * <p>Not derived here. The store follows a custom data folder when one is
-     * set and falls back to app-specific external storage otherwise; this used
-     * to hard-code the fallback, so with a custom folder configured every page
-     * saved from the browser was written where the importer never looked and
-     * no guide ever appeared.
+     * <p>Not derived here, so pages are always written where the importer looks;
+     * the local fallback in guidesImportDir is only for when the native call fails.
      */
     private static native String nativeGuidesRoot();
 
@@ -155,7 +150,7 @@ public final class GuideBrowser {
         return new File(host.getExternalFilesDir(null), "guides/import");
     }
 
-    /** Called from native (guide/browser.cpp). Safe from any thread. */
+    /** Called from native (jni_bridge.cpp, open_guide_browser). Safe from any thread. */
     public static void open(final Activity host, final String startUrl) {
         if (host == null) {
             return;
@@ -186,10 +181,8 @@ public final class GuideBrowser {
         }
         host.runOnUiThread(() -> {
             try {
-                // Was the pre-R setSystemUiVisibility flags only, which are a
-                // no-op at targetSdk 30+ -- so closing the overlay left the
-                // gesture pill showing. DuskActivity owns the one version-aware
-                // implementation; this defers to it.
+                // The version-aware implementation (pre-R setSystemUiVisibility
+                // flags alone are a no-op at targetSdk 30+).
                 CompanionPresentation.applyImmersive(host.getWindow());
             } catch (Throwable t) {
                 Log.e(TAG, "reapplyImmersive failed", t);
@@ -236,18 +229,11 @@ public final class GuideBrowser {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         WebView web = new WebView(host);
-        // Start every session with an empty cookie jar.
-        //
-        // The WebView shares the app-wide persistent jar, and a crawl loads two
-        // dozen pages, so cookies accumulate across runs with nothing ever
-        // trimming them. Past a certain size the site's own server rejects the
-        // request before it reaches the page:
-        //
-        //     400 Bad Request - Request Header Or Cookie Too Large
-        //
-        // and the user cannot clear it themselves without wiping app data.
-        // Nothing here needs a session to survive — there is no login, and a
-        // fresh jar is exactly the state of a first-ever run, which works.
+        // Start every session with an empty cookie jar. The WebView shares the
+        // app-wide persistent jar, and crawls accumulate cookies across runs
+        // until the site answers "400 Request Header Or Cookie Too Large",
+        // which the user cannot clear without wiping app data. Nothing here
+        // needs a session (there is no login).
         try {
             CookieManager cookies = CookieManager.getInstance();
             cookies.removeAllCookies(null);
@@ -263,9 +249,9 @@ public final class GuideBrowser {
         web.getSettings().setUseWideViewPort(true);
         web.getSettings().setBuiltInZoomControls(true);
         web.getSettings().setDisplayZoomControls(false);
+        web.addJavascriptInterface(new Bridge(host), "DuskBridge");
         // Keep navigation in this view; handing off to an external browser
         // would put the page somewhere we cannot read the DOM from.
-        web.addJavascriptInterface(new Bridge(host), "DuskBridge");
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onReceivedError(WebView view, android.webkit.WebResourceRequest req,
@@ -286,16 +272,13 @@ public final class GuideBrowser {
                 // makes a multi-page guide one button instead of N.
                 if (sQueueAt >= 0) {
                     // onPageFinished is not once-per-page: a redirect or an
-                    // in-page navigation fires it again, and each firing used
-                    // to start its own settle chain. Two chains both reached
-                    // savePage(), so the page was saved twice and advanceCrawl()
-                    // ran twice -- silently skipping the page after it. The
-                    // token makes the newest chain the only live one.
+                    // in-page navigation fires it again. Parallel settle chains
+                    // would each save the page and advance the crawl, skipping
+                    // the next page; the token keeps only the newest alive.
                     sSettleGen++;
-                    // NOT a fixed delay. onPageFinished fires before this site
-                    // has built its article body, and saving 400ms later
-                    // captured a page with one paragraph and two images. Wait
-                    // for the DOM to stop growing instead.
+                    // Not a fixed delay: onPageFinished fires before this site
+                    // has built its article body. Wait for the DOM to stop
+                    // growing instead.
                     waitForSettle(host, 0, 0, sSettleGen);
                 }
             }
@@ -306,12 +289,10 @@ public final class GuideBrowser {
         root.addView(column, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
 
-        // Added to SDL's OWN layout, not via addContentView. SDL puts its
-        // SurfaceView in mLayout and overlays its text-input view there the
-        // same way, so this is the path already proven to draw above the game
-        // surface in this app. addContentView put the view somewhere it never
-        // became visible while still swallowing touch, which is why the game
-        // appeared frozen with nothing on screen.
+        // Added to SDL's own layout, where SDL overlays its text-input view the
+        // same way, so it reliably draws above the game surface. addContentView
+        // (the fallback) can leave the overlay invisible while it still
+        // swallows touch.
         // Reflection: SDLActivity is in the app, not on this DEX's compile classpath (it resolves
         // at runtime through the app class loader this DEX is parented to).
         View sdlLayout = null;
@@ -350,10 +331,8 @@ public final class GuideBrowser {
     }
 
     /**
-     * Drops the overlay and every piece of static state behind it. Split out of
-     * close() so shutdown() cannot drift from it -- they were separate copies
-     * of the same teardown, and a field added to one would have been missed by
-     * the other.
+     * Drops the overlay and every piece of static state behind it. Shared by
+     * close() and shutdown() so the two cannot drift.
      */
     private static void teardown() {
         // Also on the way out: a single page saved without a crawl never
@@ -437,13 +416,10 @@ public final class GuideBrowser {
         }
         final String pageUrl = sWebView.getUrl();
         final String title = sWebView.getTitle();
-        // Hand each image to the Bridge and leave only a FILENAME in the DOM.
-        //
-        // zeldadungeon answers 403 to a plain client for images as well as
-        // pages, so nothing but this browser can read them. Canvas can, since
-        // they are same-origin, and drawing through a capped canvas downscales
-        // at the same time. Crucially the bytes leave via DuskBridge, not
-        // inside the returned DOM string.
+        // Hand each image to the Bridge and leave only a filename in the DOM.
+        // The site answers 403 to non-browser clients for images too, so only
+        // this browser can read them; a capped canvas (same-origin) also
+        // downscales. The bytes leave via DuskBridge, not the returned DOM.
         sAssetStem = safeName(title, pageUrl);
         final String inline =
             "(function(){"

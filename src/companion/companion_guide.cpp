@@ -21,15 +21,11 @@
 #include "dusk/guide/image.hpp"
 #include "dusk/guide/store.hpp"
 
-// Guide reader: an OVERLAY inside the content window, not a Page.
-//
-// Not a Page on purpose. drawDashboard force-resets s_page to PAGE_MAP for any
-// page missing from visiblePages(), so a tab-less page is impossible; and
-// l_tabNames/l_msg are [PAGE_COUNT] arrays with four initialisers, so adding an
-// enumerator silently hands NULL to localizedWord. Drawing over the window
-// sidesteps both, changes no tab layout, and leaves the tabs, the I/II slots,
-// the corner buttons and the top bar live underneath — which is the point: the
-// HUD keeps working while you read.
+// Guide reader: an OVERLAY drawn over the content window. Functional has no
+// GUIDE tab (it opens from the left column), and drawing over the window leaves
+// the tabs, the I/II slots, the corner buttons and the top bar live underneath,
+// so the HUD keeps working while you read. In the Wii U layout PAGE_GUIDE is a
+// real tab whose page draw just keeps this overlay open.
 
 namespace dusk::companion {
 
@@ -49,12 +45,9 @@ dusk::guide::Document s_doc;
 bool s_docLoaded = false;
 std::string s_docId;
 
-// Every section of every saved guide, flattened.
-//
-// A multi-page walkthrough imports as ONE GUIDE PER CHAPTER, and the reader
-// used to open only entries[0] — so 23 saved chapters showed up as whichever
-// two sections happened to be first. index.json already carries each guide's
-// section list, so the browse list costs one small file read, not 23.
+// Every section of every saved guide, flattened: a multi-page walkthrough
+// imports as ONE GUIDE PER CHAPTER. index.json already carries each guide's
+// section list, so the browse list costs one small file read, not one per guide.
 struct BrowseRow {
     std::string guideId;
     std::string label;
@@ -76,16 +69,14 @@ int s_expanded = -1;
 // the answer can change.
 bool s_guideAvailable = false;
 
-// Chapter headers always; their sections only while that chapter is open.
 // Chapter number a guide belongs to, read from the first of its sections that
 // is numbered ("13.1 First Poe Soul" -> 13). Guides carry no number of their
 // own and the index is in import order, which is whatever order the pages were
-// saved in -- so without this the list ran 17, 9, 16, 8, 3, 13, ...
+// saved in, so the list is sorted by this instead.
 //
 // The "is it numbered" test is dusk::guide::section_number, NOT a second copy:
-// the store names that section's images with the same prefix, and a list that
-// disagreed with the folder about which sections are numbered would be worse
-// than either behaviour on its own.
+// the store names that section's images with the same prefix, and the list must
+// agree with the folder about which sections are numbered.
 int chapterNumberOf(const dusk::guide::IndexEntry& e) {
     for (const auto& sec : e.sections) {
         const std::string num = dusk::guide::section_number(sec.title);
@@ -96,23 +87,18 @@ int chapterNumberOf(const dusk::guide::IndexEntry& e) {
     return 9999;  // unnumbered: keep it after everything numbered
 }
 
-
 // --- Where the player is, mapped onto the guide -----------------------------
 //
 // The marker only ever POINTS; it never moves the reader. A guide is whatever
 // the player downloaded, so every step here degrades to "no marker" rather
 // than to a wrong one.
 //
-// Chapter comes from the stage code. EVERY entry below is confirmed, by one
-// of two means:
-//   * booted on the headless rig and read off the game's own place label
-//     (D_MN01, D_MN05, D_MN06, D_MN10, D_MN11, F_SP103)
-//   * named outright in the decomp's own comments (the rest)
-// Nothing here is a guess. Cave of Ordeals is deliberately ABSENT: D_MN54
-// looked like it, but d_a_door_bossL1.cpp lists it as having a boss door and
-// d_s_menu.cpp uses it in item-clearing debug setup, so it is something else.
-// An unlisted stage simply has no marker, which is also the right answer for
-// a shop, a grotto or a cutscene stage.
+// Chapter comes from the stage code. Every entry is confirmed, either on the
+// rig (read off the game's own place label) or named in the decomp's comments;
+// see the per-entry notes. Cave of Ordeals is deliberately ABSENT: D_MN54
+// looked like it, but d_a_door_bossL1.cpp gives it a boss door and d_s_menu.cpp
+// uses it in item-clearing debug setup, so it is something else. An unlisted
+// stage has no marker, which is also right for a shop, grotto or cutscene.
 struct StageChapter {
     const char* stage;  // prefix match: D_MN05, D_MN05A and D_MN05B are one dungeon
     int chapter;
@@ -188,21 +174,10 @@ int currentDungeonSection() {
     return n;
 }
 
-// Section-completion flags, for the chapters that are not dungeons.
-//
-// A section counts as DONE when its flag is set, so the marker sits on the
-// first section of the chapter whose flag is NOT yet set. That ordering is the
-// whole design: it needs no per-section exactness, only that the flags fire in
-// the same order the sections are written, and it degrades sensibly for a
-// player who skipped optional content.
-//
-// MUST stay sorted by (chapter, section) — the search below takes the first
-// unset entry it meets. Entries are added only once confirmed; an unmapped
-// chapter simply gets a chapter-level marker, which is what shipped in 2.5.
 // What marks a section complete. Event bits cover the overworld; dungeons are
 // better served by their own items, because the site does NOT order dungeon
-// sections map-compass-key. Forest Temple runs map, three monkeys, boomerang,
-// compass, big key — so counting items held put the marker four sections early.
+// sections map-compass-key (Forest Temple runs map, three monkeys, boomerang,
+// compass, big key), so a plain count of items held runs ahead.
 enum class SectionSignal : u8 {
     EventBit,        // value = dSv_event_flag_c::X
     DungeonMap,      // value unused
@@ -234,6 +209,11 @@ bool sectionDone(const SectionFlag& e) {
         return false;
     }
 }
+// Section-completion signals, by (chapter, section). A section counts as DONE
+// when its signal is set, and the marker sits after the last completed one
+// (currentOverworldSection), so this needs no per-section exactness — only that
+// the signals fire in the order the sections are written. Entries are added
+// only once confirmed; a chapter with none gets a chapter-level marker only.
 constexpr SectionFlag kSectionFlags[] = {
     // Chapter 1 - Ordon Village
     {1, 1, SectionSignal::EventBit, dSv_event_flag_c::F_0019},  // Spoke with Ilia at the spring
@@ -262,12 +242,10 @@ constexpr SectionFlag kSectionFlags[] = {
     {3, 2, SectionSignal::EventBit, dSv_event_flag_c::F_0059},  // Conversation after tears complete
     {3, 3, SectionSignal::EventBit, dSv_event_flag_c::F_0218},  // Bought jar of oil from Coro
 
-    // Chapter 4 - Forest Temple. Mapped by ITEM, not by the ordinal: the site
-    // interleaves four monkey-rescue sections between the map, the boomerang,
-    // the compass and the big key, so counting items held marked the player
-    // several sections early. The unmapped ones (the monkeys, and the boss)
-    // hold the marker at the previous mapped section, which is correct — you
-    // are working through them with no new item to show for it.
+    // Chapter 4 - Forest Temple. Mapped by ITEM, not by the ordinal (see
+    // SectionSignal). The unmapped sections (the monkeys, and the boss) hold
+    // the marker at the previous mapped section, which is correct — you are
+    // working through them with no new item to show for it.
     {4, 1, SectionSignal::DungeonMap, 0},                       // 4.1 Dungeon Map
     {4, 5, SectionSignal::ItemFirstBit, dItemNo_BOOMERANG_e},   // 4.5 The Gale Boomerang
     {4, 6, SectionSignal::DungeonCompass, 0},                   // 4.6 The Compass
@@ -275,14 +253,11 @@ constexpr SectionFlag kSectionFlags[] = {
     {4, 9, SectionSignal::EventBit, dSv_event_flag_c::M_022},   // 4.9 Forest Temple clear
 };
 
-// The section after the last COMPLETED one — not the first unmapped-or-unset
-// entry. The difference is what happens to a section with no flag: several
-// have none (the save simply does not record "found Talo's wooden stick"), and
-// searching for the first unset entry skipped straight past them, marking the
-// next mapped section while the player was still reading the unmapped one.
-// Counting from the last completed section instead makes an unmapped section
-// HOLD the marker until the following mapped one completes, so the marker can
-// only ever lag, never run ahead.
+// The section after the last COMPLETED one — not the first unset entry.
+// Several sections have no flag (the save does not record "found Talo's wooden
+// stick"); counting from the last completed section makes such a section HOLD
+// the marker until the following mapped one completes, so the marker can only
+// ever lag, never run ahead.
 //
 // 0 when the chapter has no mappings at all, which suppresses the section
 // marker rather than guessing.
@@ -344,6 +319,7 @@ void drawHereMarker(f32 x, f32 cy, f32 size) {
     }
 }
 
+// Chapter headers always; their sections only while that chapter is open.
 void rebuildBrowseList() {
     s_browse.clear();
     const dusk::guide::Index idx = dusk::guide::load_index();
@@ -374,17 +350,13 @@ void rebuildBrowseList() {
             continue;
         }
         for (std::size_t i = 0; i < e.sections.size(); i++) {
-            // Skip the page's own heading. On every real chapter, section 0's
-            // title is the document title verbatim and its body is one line of
-            // boilerplate ("This chapter covers the normal mode of..."), so it
-            // was listed as an "Overview" row that repeated the chapter name
-            // and led to nothing worth reading. Matched on the title rather
-            // than on the index, so a page that genuinely opens with content
-            // under its own subheading still keeps it.
-            // ...but only when there is something else to show. A page with no
-            // subheadings converts to ONE section named after itself; hiding
-            // that left a chapter row that expanded to nothing and could never
-            // be opened.
+            // Skip the page's own heading: section 0's title is the document
+            // title verbatim and its body one line of boilerplate. Matched on
+            // the title, not the index, so a page that genuinely opens with
+            // content keeps it — and only when other sections exist, since a
+            // page with no subheadings converts to ONE section named after
+            // itself, and hiding it would leave a chapter that expands to
+            // nothing.
             if (i == 0 && e.sections.size() > 1 && e.sections[i].title == e.title) {
                 continue;
             }
@@ -429,18 +401,17 @@ f32 s_lineImgW[GUIDE_LINES_MAX];
 f32 s_contentH = 0.0f;
 int s_lineCount = 0;
 
+// Outline marking an image slot while its decode runs.
+constexpr GXColor COL_IMG_PENDING = {96, 91, 80, 190};
 // Converted-image cache, bounded. Blobs are linear RGBA8 (image.cpp), so a
 // 512x512 image is 1 MiB and an unbounded cache would quietly grow past what
 // the second screen is worth. Evicted whole-entry, oldest first.
-// Outline marking an image slot while its decode runs.
-constexpr GXColor COL_IMG_PENDING = {96, 91, 80, 190};
 constexpr std::size_t IMG_CACHE_BUDGET = 6u * 1024u * 1024u;
 constexpr std::size_t IMG_CACHE_MAX_ENTRIES = 64;
 struct CachedImage {
-    // Doc and ref kept APART rather than as one "doc/ref" key. Joining them
-    // meant building that string on every imageFor() call -- once per visible
-    // image per frame, on the draw path -- purely to compare it and throw it
-    // away. Two compares of existing strings allocate nothing.
+    // Doc and ref kept APART rather than as one "doc/ref" key: imageFor()
+    // runs per visible image per frame, and two compares of existing strings
+    // allocate nothing where building a joined key would.
     std::string doc;
     std::string ref;
     std::vector<std::uint8_t> blob;
@@ -449,10 +420,9 @@ std::vector<CachedImage> s_imgCache;
 std::size_t s_imgCacheBytes = 0;
 // Bumped wherever s_imgCache is cleared. A decode in flight captures this at
 // spawn; a result that comes back against a stale epoch is DISCARDED rather
-// than inserted. Without it, a decode started before an import lands returns
-// empty, the import clears the cache, and the drain then writes that empty
-// blob into the FRESH cache -- a permanent "[image]" for the session, which is
-// precisely what the clear exists to prevent.
+// than inserted. Otherwise a decode started before an import lands could write
+// its empty blob into the FRESH cache -- a permanent "[image]" for the session,
+// which is precisely what the clear exists to prevent.
 unsigned s_imgCacheEpoch = 0;
 
 // Ready: draw it. Failed: never acquired or undecodable, draw the alt text.
@@ -478,9 +448,7 @@ struct ImageLookup {
 //     thread_local, so on a fresh worker it is null and operator new falls
 //     through to aligned_alloc; freeing later on the game thread walks the heap
 //     roots, finds no owner, and calls free(). That pairing is only correct
-//     while the worker never sets a current heap and never uses JKR_NEW. (It
-//     does mean these blobs now come from malloc rather than a JKRHeap arena —
-//     which is where a decorative cache belongs anyway.)
+//     while the worker never sets a current heap and never uses JKR_NEW.
 class ImageDecodeTask {
 public:
     ImageDecodeTask(std::string doc, std::string ref, std::filesystem::path path,
@@ -525,18 +493,16 @@ private:
 
 // At most ONE decode in flight. Not a compromise: images draw at native size
 // capped at 512 in a ~310-unit viewport, so about one is visible at a time, and
-// each decode already outlasts a frame. The old code was bounded to one decode
-// per frame for the same reason — the difference is that this one does not
-// stall the frame it runs on.
+// each decode already outlasts a frame.
 std::unique_ptr<ImageDecodeTask> s_imgTask;
 
 ImageLookup imageFor(const std::string& ref) {
     if (ref.empty()) {
         return {ImageState::Failed, nullptr};
     }
-    // Keyed on doc AND ref, not ref alone. A multi-chapter walkthrough imports
-    // as one guide per chapter from one site, so "image1.jpg" collides
-    // constantly and chapter 2 was rendering chapter 1's pictures.
+    // Keyed on doc AND ref, not ref alone: a multi-chapter walkthrough imports
+    // as one guide per chapter from one site, so names like "image1.jpg"
+    // collide across chapters.
     for (const CachedImage& c : s_imgCache) {
         if (c.ref == ref && c.doc == s_docId) {
             return c.blob.empty() ? ImageLookup{ImageState::Failed, nullptr}
@@ -545,8 +511,8 @@ ImageLookup imageFor(const std::string& ref) {
         }
     }
     // Miss. Ask for it if nothing else is being decoded, and draw the
-    // placeholder either way. No I/O, no allocation and no eviction happens in
-    // here any more — eviction in particular MUST NOT: a blob freed mid-draw
+    // placeholder either way. No I/O, allocation or eviction here — eviction
+    // in particular MUST NOT happen on the draw path: a blob freed mid-draw
     // may already have had its address written into the GX FIFO by an earlier
     // drawTimg this frame, and the FIFO is not drained until end_frame.
     if (s_imgTask == nullptr) {
@@ -562,12 +528,8 @@ void reapImageDecode() {
     if (s_imgTask == nullptr || !s_imgTask->finished()) {
         return;
     }
-    // Stale epoch: the cache was cleared while this was decoding, so the result
-    // describes a world that no longer exists. Drop it WITHOUT inserting — an
-    // empty blob from "the file was not downloaded yet" would otherwise become a
-    // permanent negative entry in the freshly cleared cache, which is the exact
-    // failure the clear exists to prevent. Dropping it means the next draw asks
-    // again, which is what we want.
+    // Stale epoch: the cache was cleared while this was decoding. Drop the
+    // result WITHOUT inserting (see s_imgCacheEpoch); the next draw asks again.
     if (s_imgTask->epoch() != s_imgCacheEpoch) {
         s_imgTask.reset();
         return;
@@ -579,14 +541,12 @@ void reapImageDecode() {
     if (!entry.blob.empty() && !isSaneTimg((const ResTIMG*)entry.blob.data())) {
         entry.blob = {};  // corrupt or unsupported: fall back to alt text
     }
-    // Evict oldest until the new entry fits. Ordered so the new entry is
-    // still outside the list, which is what actually makes it un-evictable.
-    // The ENTRY cap is not redundant with the byte budget: a negative entry
-    // (image not on disk) has an empty blob and so contributes 0 bytes, which
-    // means the byte loop never evicts one. A store whose images failed to
-    // download — an ordinary state, see store.cpp's note on hosts refusing
-    // image requests — otherwise accrues one permanent entry per missing ref,
-    // and the cache scan walks all of them per image per frame.
+    // Evict oldest until the new entry fits; it is not in the list yet, so it
+    // can't evict itself. The ENTRY cap is not redundant with the byte budget:
+    // a negative entry (image not on disk) is 0 bytes, so the byte loop never
+    // evicts one, and a store whose images failed to download (ordinary — see
+    // store.cpp on hosts refusing image requests) would otherwise accrue one
+    // permanent entry per missing ref, all scanned per image per frame.
     while (!s_imgCache.empty() &&
         (s_imgCacheBytes + entry.blob.size() > IMG_CACHE_BUDGET ||
             s_imgCache.size() >= IMG_CACHE_MAX_ENTRIES))
@@ -609,14 +569,12 @@ void reapImageDecode() {
 f32 s_wrappedWidth = 0.0f;
 int s_wrappedSection = -2;
 
-
-
 constexpr f32 TEXT_SIZE = 14.0f;
 constexpr f32 HEAD_SIZE = 17.0f;
 constexpr f32 LINE_H = 20.0f;
 constexpr f32 PARA_GAP = 8.0f;
-// Layout. Named by what they measure, because several share a value by
-// coincidence and editing one used to mean editing all of them by accident.
+// Layout. Named by what they measure, because several share a value only by
+// coincidence.
 constexpr f32 HEADER_H = 30.0f;     // top strip: title + prev/next
 constexpr f32 BTN_H = 26.0f;        // prev/next/list tab plates
 constexpr f32 ROW_H = 30.0f;        // one browse-list row
@@ -656,11 +614,9 @@ void wrapNode(const dusk::guide::Node& n, f32 width) {
         // not resize when a blob happens to load, or the reader would jump
         // under the finger. Aspect comes from the converted header when the
         // image is present, and a fixed slot stands in when it is not.
-        // Sized from the RECORDED dimensions, not by decoding. This used to
-        // call imageFor() for every image node just to read an aspect ratio,
-        // which meant a full file read + JPEG decode each — 20 of them inside
-        // one draw call for a typical section, evicting the very entries the
-        // draw was about to need.
+        // Sized from the RECORDED dimensions, not by decoding: calling
+        // imageFor() per node for an aspect ratio would mean a file read +
+        // JPEG decode each, evicting the very entries the draw needs.
         f32 h = IMG_ALT_H;  // alt-text fallback: one line
         f32 imgW = 0.0f;
         const std::string& file = n.ref;
@@ -775,9 +731,7 @@ void drawBodyLine(int idx, f32 x, f32 y, FontDrawContext* ctx) {
             // a filled plate spanning the body: only one image decodes at a
             // time, and this guide's source pairs its screenshots, so a solid
             // block of image-like size sitting directly under a real image
-            // reads as that image rendered twice. (It is also why this cannot
-            // just be the old alt text: the slot is picture-sized, and one line
-            // of text floating in it looks like a layout fault.)
+            // reads as that image rendered twice.
             const f32 slotH = s_lineH[idx];
             const f32 pw = s_lineImgW[idx] > 0.0f ? s_lineImgW[idx] : s_wrappedWidth;
             const f32 py0 = y - TEXT_SIZE;
@@ -798,18 +752,11 @@ void drawBodyLine(int idx, f32 x, f32 y, FontDrawContext* ctx) {
     }
     const bool head = kind == (u8)NodeKind::Heading;
     const f32 indent = kind == (u8)NodeKind::ListItem ? LIST_INDENT * (f32)s_lineLevel[idx] : 0.0f;
-    // One draw call per glyph, deliberately. A screen of prose here costs
-    // ~1600 calls and as many texture binds, so batching them is tempting --
-    // it was tried and reverted, and the reason is worth keeping:
-    //
-    //   drawChar_scale calls pushDrawState() ONLY when no FontDrawContext is
-    //   passed. Hand it one and the caller now owns the vertex format; get
-    //   that wrong and the FIFO desyncs outright. On device it surfaced as
-    //   "draw vertex data overrun: need 596000 bytes" -- ~149KB per vertex,
-    //   i.e. not the format the font expected.
-    //
-    // Anyone re-attempting it must set up the state the font would have set
-    // up. The draw-call count is an optimisation; this path is correct.
+    // One draw call per glyph, deliberately; ctx is NOT passed through.
+    // drawChar_scale calls pushDrawState() ONLY when no FontDrawContext is
+    // passed — hand it one and the caller owns the vertex format, and getting
+    // that wrong desyncs the FIFO ("draw vertex data overrun: need 596000
+    // bytes" on device). Batching must set up the state the font would have.
     (void)ctx;
     drawText(x + indent, y, head ? HEAD_SIZE : TEXT_SIZE,
         head ? TEXT_ACCENT : TEXT_MAIN, "%s", s_lines[idx]);
@@ -818,7 +765,6 @@ void drawBodyLine(int idx, f32 x, f32 y, FontDrawContext* ctx) {
 f32 lineAdvance(int idx) {
     return s_lineH[idx];
 }
-
 
 // Rebuilds the browse list and reports whether anything is saved. Cheap: one
 // small index read, no documents touched.
@@ -846,23 +792,11 @@ bool ensureDocument(const std::string& id) {
 
 bool guideAvailable() {
     if (!getSettings().game.guideEnabled.getValue()) {
-        return false;  // the setting existed but nothing read it
+        return false;
     }
-    // Checked once, lazily. It used to be set only by rebuildBrowseList, which
-    // runs from guideOpen — so the left-column page that OPENS the guide only
-    // appeared after the guide had already been opened. Nothing could ever
-    // reach it.
-    // Re-checked while empty. Latching the first answer meant a store that was
-    // empty at boot stayed "empty" forever — and since the left-column box is
-    // the only way to reach guideOpen(), which is the only caller of
-    // begin_import(), nothing saved during the session could ever be picked up
-    // without restarting. Once something exists the answer is stable and all of
-    // this stops.
-    // A converter bump has to reach installs that ALREADY have guides -- those
-    // are the ones with something to re-convert, and the poll below only fires
-    // while the store is empty, so on its own it reaches none of them. One
-    // shot per launch; scan_import_folder is idempotent and no-ops when the
-    // stamp is current.
+    // One shot per launch: a converter bump has to reach installs that ALREADY
+    // have guides, and the poll below only runs while the store is empty.
+    // scan_import_folder is idempotent and no-ops when the stamp is current.
     static bool sReconvertChecked = false;
     if (!sReconvertChecked) {
         sReconvertChecked = true;
@@ -870,13 +804,14 @@ bool guideAvailable() {
             dusk::guide::begin_import();
         }
     }
+    // Can't rely on rebuildBrowseList alone: it runs from guideOpen, which is
+    // reached through the left-column box this answer gates. Re-checked while
+    // empty so guides saved mid-session are picked up; once something exists
+    // the answer is stable.
     if (!s_guideAvailable) {
-        // Refreshed on the import's COMPLETION EDGE, not on a timer. This used
-        // to re-read and re-parse index.json every ~4s for the whole session on
-        // any install with no guides — which is the default state — purely to
-        // notice a change that only an import can cause. The generation bump is
-        // exactly that event, and testing it is an atomic load instead of a
-        // file read plus a JSON parse on the game thread.
+        // Refreshed on the import's COMPLETION EDGE (the generation bump), not
+        // on a timer: an atomic load instead of a file read plus a JSON parse
+        // on the game thread, for a change only an import can cause.
         static unsigned sSeenGen = ~0u;  // forces the first read
         const unsigned gen = dusk::guide::import_generation();
         if (gen != sSeenGen) {
@@ -887,14 +822,11 @@ bool guideAvailable() {
             static int sPoll = 0;
             if (--sPoll <= 0) {
                 sPoll = 240;  // ~4s at 60fps
-                // Break the deadlock. begin_import() used to be reachable only
-                // from guideOpen(), which needed the left-column box, which
-                // needed a non-empty index, which only an import could produce
-                // — so on a clean install nothing the browser saved was ever
-                // picked up, across restarts. Still a poll because a guide can
-                // be saved mid-session and nothing else would notice, but the
-                // scanning happens on the worker; the game thread only starts
-                // it, and starting one while one runs is a no-op.
+                // Breaks the deadlock: guideOpen() needs the left-column box,
+                // which needs a non-empty index, which only an import can
+                // produce. A poll because a guide can be saved mid-session;
+                // the scan runs on the worker, and starting one while one runs
+                // is a no-op.
                 dusk::guide::begin_import();
             }
         }
@@ -903,8 +835,7 @@ bool guideAvailable() {
 }
 
 // Left-column page: icon and label, matching the other boxes. Tapping it opens
-// the reader — this replaced the battery tap, which was an invisible gesture
-// on a readout that means something else.
+// the reader.
 void drawLeftGuideBox(f32 x1, f32 y0, f32 y1) {
     (void)y1;
     const f32 cx = x1 * 0.5f + 4.0f;
@@ -926,15 +857,10 @@ void guideRowTap(int row) {
     if (r.section < 0) {
         s_expanded = s_expanded == r.guideIndex ? -1 : r.guideIndex;
         rebuildBrowseList();
-        // Keep the row the finger landed on exactly where it was. This used to
-        // reset the scroll to 0, which threw the list back to the first
-        // chapter every time one was expanded — the further down you were, the
-        // more of a jump it was.
-        //
-        // Not simply "leave the scroll alone" either: only one chapter is open
-        // at a time, so expanding this one COLLAPSES the previous one, and if
-        // that sat above this row every row above shifts up. Re-finding the
-        // row and correcting by the difference handles both directions.
+        // Keep the tapped row exactly where it was. Leaving the scroll alone
+        // is not enough: expanding this chapter COLLAPSES the previous one,
+        // and if that sat above, every row shifts up. Re-finding the row and
+        // correcting by the difference handles both directions.
         for (std::size_t i = 0; i < s_browse.size(); i++) {
             if (s_browse[i].section < 0 && s_browse[i].guideIndex == r.guideIndex) {
                 s_scrollGuide += ((f32)i - (f32)row) * ROW_H;
@@ -1007,15 +933,11 @@ void guideOpen() {
     s_guideOpen = true;
     // Section and scroll are deliberately NOT reset: closing to glance at the
     // map and coming back should land exactly where you were reading.
+    // Rescan on every open, so pages saved after the first import are picked
+    // up. On a worker: importing pulls images over a BLOCKING http::get.
+    dusk::guide::begin_import();
     // Load lazily: the store touches the filesystem, so it must not run every
     // frame, and there is no point paying for it until the reader is asked for.
-    // Unconditional rescan. This used to be inside the !s_docLoaded branch, so
-    // once anything was in the catalogue nothing ever looked at the import
-    // folder again — pages dropped in by hand, or saved after the first import
-    // ran, stayed invisible. Kicked onto a worker, never run here: importing
-    // converts pages and pulls their images over a BLOCKING http::get, which on
-    // this thread froze the game for as long as the downloads took.
-    dusk::guide::begin_import();
     if (!s_docLoaded) {
         loadFirstDocument();
     }
@@ -1038,7 +960,6 @@ void guideBack() {
     }
     guideClose();
 }
-
 
 void guideClose() {
     s_guideOpen = false;
@@ -1064,7 +985,7 @@ void publishReaderRect(f32 rx, f32 ry, f32 rw, f32 rh, int id) {
 }
 
 // Header strip: prev/next plate, title, and the rule under them. Publishes the
-// two nav rects and returns where the body starts.
+// two nav rects.
 void drawGuideHeader(f32 x0, f32 y0, f32 x1) {
     const char* title = !s_docLoaded ? txt(STR_GUIDE_EMPTY)
         : (s_guideSection >= 0 && s_guideSection < (int)s_doc.sections.size()
@@ -1123,8 +1044,8 @@ void drawGuideHeader(f32 x0, f32 y0, f32 x1) {
         }
     }
     drawTextEllipsized(textX, y0 + 19.0f, TEXT_SIZE, titleRight - textX, TEXT_ACCENT, shown);
-    // No Back button here: it lives on the context tab now, which is where
-    // the rest of the companion puts navigation.
+    // No Back button here: it lives on the context tab, which is where the
+    // rest of the companion puts navigation.
     fillRect(x0 + 6.0f, y0 + HEADER_H, x1 - 6.0f, y0 + HEADER_H + 1.0f, COL_FRAME);
 }
 
@@ -1137,10 +1058,8 @@ void drawGuideBrowseList(f32 x0, f32 y0, f32 x1, f32 y1, f32 bodyX, f32 bodyW, f
     int hereSection = 0;
     currentPosition(&hereChapter, &hereSection);
     s_readerRectCount = 0;
-    // Clamped BEFORE the rows are placed. It used to run at the end of this
-    // function, so a drag that pushed the scroll past an end had its overscroll
-    // drawn for one frame and corrected on the next — every frame the finger
-    // kept pulling, which read as the list shaking in place at the top.
+    // Clamped BEFORE the rows are placed: clamping afterwards draws a frame of
+    // overscroll for every frame of drag past an end, so the list shakes.
     const f32 contentH = (f32)s_browse.size() * ROW_H;
     const f32 maxScroll = clampListScroll(&s_scrollGuide, contentH, viewH);
     f32 ry = bodyY0 - s_scrollGuide;
@@ -1159,16 +1078,16 @@ void drawGuideBrowseList(f32 x0, f32 y0, f32 x1, f32 y1, f32 bodyX, f32 bodyW, f
                 drawText(rx + 8.0f, ry + 19.0f, TEXT_SIZE,
                     open ? TEXT_TAB_ACTIVE : TEXT_ACCENT, "%s", open ? "-" : "+");
             }
-            // An expanded header sits on the light parchment plate, where
-            // gold is nearly unreadable — use the dark ink the selected
-            // tab and context tab already use.
             // "You are here". A chapter row is marked whenever the player is
-            // anywhere in that chapter; a section row only when the dungeon
-            // ordinal picks it out. Drawn on the right so it never shifts the
+            // anywhere in that chapter; a section row only when it is the
+            // current section. Drawn on the right so it never shifts the
             // label, and skipped entirely when the position is unknown.
             const bool hereRow = hereChapter != 0 && s_browse[i].chapterNo == hereChapter &&
                 (header ? true : (hereSection != 0 && s_browse[i].sectionNo == hereSection));
             const f32 markerW = hereRow ? 22.0f : 0.0f;
+            // An expanded header sits on the light parchment plate, where
+            // gold is nearly unreadable — use the dark ink the selected
+            // tab and context tab already use.
             drawTextEllipsized(rx + (header ? 24.0f : 8.0f), ry + 19.0f, TEXT_SIZE,
                 rw - (header ? 32.0f : 16.0f) - markerW,
                 open ? TEXT_TAB_ACTIVE : (header ? TEXT_ACCENT : TEXT_MAIN),
@@ -1216,10 +1135,9 @@ void drawGuideSectionBody(f32 x0, f32 y0, f32 x1, f32 y1, f32 bodyX, f32 bodyW, 
     drawListScrollHint(x1, bodyY0, y1, s_scrollGuide, maxScroll, viewH, contentH);
 
     // Wii U only. There the reader is a PAGE and drawGuideOverlay paints over
-    // the whole content window — including drawCinematicContextTab, which is
-    // drawn earlier and therefore sits UNDER the panel. Its Back was never
-    // visible, so the list was unreachable once a section was open. Functional
-    // keeps using the context tab, which is where that layout puts navigation.
+    // the whole content window — including drawCinematicContextTab, drawn
+    // earlier and so hidden UNDER the panel — so the way back to the list has
+    // to live here. Functional keeps using the context tab.
     //
     // Square plate, not the chamfered bed the panel itself uses: it is a
     // control sitting on the surface, matching the < > buttons above.
@@ -1271,11 +1189,10 @@ void drawGuideOverlay(f32 x0, f32 y0, f32 x1, f32 y1) {
     const unsigned gen = dusk::guide::import_generation();
     if (gen != s_seenImportGen) {
         s_seenImportGen = gen;
-        // Only when the import actually brought something in. Every reader
-        // open now kicks a scan (that is how pages saved mid-session are
-        // noticed), and a scan that finds nothing still completes and still
-        // bumps the generation — so clearing unconditionally threw away a
-        // populated image cache every single time the guide was opened.
+        // Only when the import actually brought something in: every reader
+        // open kicks a scan, and a scan that finds nothing still bumps the
+        // generation, so clearing unconditionally would throw away the image
+        // cache on every open.
         if (dusk::guide::last_import_count() > 0) {
             // Negative cache entries (image not on disk yet) must not outlive
             // the import that fills them in; see imageFor.

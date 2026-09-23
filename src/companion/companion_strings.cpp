@@ -117,7 +117,7 @@ const char* const l_strings[][5] = {
      "Aucune lettre.",
      "No hay cartas.",
      "Nessuna lettera."},
-    // STR_COMBO_ON  (%s = the localized item name; English wording unchanged)
+    // STR_COMBO_ON  (%s = the localized item name)
     {"%s + Bow combo!",
      "%s + Bogen-Kombi!",
      "Combo %s + arc !",
@@ -208,9 +208,8 @@ const char* txt(StringId id) {
     if (s == nullptr || s[0] == 0) {
         s = l_strings[id][0];
     }
-    // A row added to the enum without a table row is silently zero-filled by
-    // C++, not a compile error — and several of these are used as printf
-    // formats, so a null would crash rather than misdraw.
+    // Guard against a short row zero-filling to nullptr: several of these are
+    // used as printf formats, so a null would crash rather than misdraw.
     return s != nullptr ? s : "";
 }
 

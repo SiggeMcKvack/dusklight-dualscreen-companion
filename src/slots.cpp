@@ -10,14 +10,8 @@
 namespace dsc::slots {
 namespace {
 
-// Slot I (save select index 2) is a real item button: hooks.cpp injects its BTN_Z bit after the
-// pad is sampled and teaches the item-button functions about index 2, so nothing is needed here.
-//
-// Slot II (index 3) has no free mask bit of its own -- 1 << 3 is BTN_B, which is live item code --
-// so it still routes through the Y button: a press exchanges the slot's item with Y's and leaves
-// it there (restoring the binding on release would unequip worn items), and the button's previous
-// item takes the slot. Ooccoo is the exception: her quick-use restores the slot binding itself, so
-// the Y binding is put back once the warp has started.
+// Slot II's exchange scheme is described in slots.hpp. Its natural bit, 1 << 3, is BTN_B (live
+// item code), which is why it can't be a real item button like slot I.
 constexpr int kSlotII = 1;
 constexpr int kButtonY = SELECT_ITEM_Y;
 constexpr int kSlotSelectIndex = SELECT_ITEM_DOWN;  // slot I

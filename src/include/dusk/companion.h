@@ -2,8 +2,8 @@
 
 namespace dusk::companion {
 
-// Handle page-cycling input. Call once per frame on the game thread while the
-// dual-screen capture is active (an ImGui frame must be live).
+// Per-frame hook, called on the game thread while the dual-screen capture is
+// active. Currently a no-op (the fork's ImGui debug keys are not ported).
 void update();
 bool hudReady();
 void setNativeCanvas(unsigned width, unsigned height, float scale);
@@ -13,8 +13,8 @@ void applyNativeViewport();
 // the transition/load ramp and the cutscene fade, whichever is deeper.
 // Ticked by beginFrameCompanionInput() — the GAME frame loop, which keeps
 // running while the HUD is torn down and no dashboard is drawn. dualscreen
-// publishes it to the aux window, which applies it to the blit, so the fade
-// keeps advancing over a picture frozen on its last frame.
+// applies it to the present blit, so the fade keeps advancing over a picture
+// frozen on its last frame.
 float currentDim();
 
 // Drop the dim to lit immediately (no ramp). For the boot / quit-to-title

@@ -1,18 +1,22 @@
 #pragma once
 
 // Internal shared surface of the companion dashboard modules. Everything
-// here is private to src/dusk/companion*.cpp — the public API lives in
-// include/dusk/companion.h.
+// here is private to src/companion/ — the public API lives in
+// dusk/companion.h.
 //
-// Layout of the modules:
-//   companion_gfx.cpp     low-level drawing primitives + pane compositing
-//   companion_icons.cpp   item/collect icon caches (all static buffers)
-//   companion_touch.cpp   touch input, drag & drop, equip actions
-//   companion_pages.cpp   MAP / ITEMS page content
-//   companion_collect.cpp COLLECT page content
-//   companion_dmap.cpp    live dungeon-map renderer (menu-map reuse)
-//   companion.cpp         dashboard composition, public API, and the
-//                         definitions of all shared state below
+// Layout of the modules (src/companion/):
+//   companion_gfx.cpp        low-level drawing primitives + pane compositing
+//   companion_icons.cpp      item/collect icon caches (all static buffers)
+//   companion_touch.cpp      touch input, drag & drop, equip actions
+//   companion_pages.cpp      MAP / ITEMS page content
+//   companion_collect.cpp    COLLECT page content
+//   companion_dmap.cpp       live dungeon-map renderer (menu-map reuse)
+//   companion_hud.cpp        shared + Cinematic HUD widgets
+//   companion_functional.cpp Functional ("3DS style") layout
+//   companion_guide.cpp      guide reader overlay
+//   companion_strings.cpp    localized UI strings (see companion_strings.h)
+//   companion.cpp            dashboard composition, public API, and most of
+//                            the shared state below
 
 #include "dusk/game_access.h"
 #include "JSystem/J2DGraph/J2DGrafContext.h"
@@ -95,16 +99,13 @@ constexpr int RAWICON_YADUTU1 = 0x4A;  // quiver small/big/giant: +0/+1/+2
 
 // Pause-menu decoration art (clctres, always mounted): intensity textures
 // the game tints via TEV — draw them through drawTimgTinted.
-// (identified by matching the live collection screen's panes to archive
-// resources — see the pane dump in the session notes)
 constexpr int DECO_COUNT = 6;
 constexpr int DECO_BLOCKS = 0;     // TT_BLOCK128: stone-block menu backdrop
 constexpr int DECO_TAB_PLATE = 1;  // the Save/Options button plate
 constexpr int DECO_LINE = 2;       // TT_LINE2: soft separator line
 constexpr int DECO_YAKUSHIMA = 3;  // TT_YAKUSHIMA: the Link-box mottled background
-// Ornament pieces matched to the game's own collection screen (verified by
-// instantiating zelda_collect_soubi_screen.blo and resolving pane textures
-// by pointer): the plate every item/gear cell uses, and the small corner
+// Ornament pieces from the game's own collection screen
+// (zelda_collect_soubi_screen.blo): the item/gear cell plate and the corner
 // flourish the window border reproduces.
 constexpr int DECO_SLOT_PLATE = 4;  // TT_SPOT_SQUARE3: item/gear cell plate
 constexpr int DECO_KAZARI = 5;      // TT_KAZARI_2ND_OKAN_64: corner flourish
@@ -281,7 +282,7 @@ constexpr f32 FN_CTXTAB_H = 44.0f;     // middle context-tab height
 constexpr f32 FN_DUNGEON_H = 104.0f;   // dungeon 2x2 box, bottom-anchored
 
 // ---------------------------------------------------------------------------
-// Shared state (defined in companion.cpp — see the "Shared state" block).
+// Shared state (mostly defined in companion.cpp's "Shared state" block).
 
 extern std::atomic<int> s_page;
 extern std::atomic<int> s_collectTab;
@@ -329,11 +330,9 @@ constexpr int DROP_TARGET_SLOT1 = 2;
 extern bool s_dropRectValid;
 extern f32 s_dropRect[DROP_TARGET_COUNT][4];  // x0, y0, x1, y1
 
-// One grab margin for the equip drop targets, and one test that uses it.
-// dropTargetAt is the TRUTH — it decides where a release actually equips — so
-// the highlights have to agree with it exactly. They did not: the Cinematic
-// highlight used 6.0f against dropTargetAt's 8.0f, leaving a 2px band around
-// every target where a drop silently succeeded with no gold feedback.
+// One grab margin for the equip drop targets, shared by dropTargetAt (which
+// decides where a release actually equips) and the highlights, so there is no
+// band where a drop succeeds without gold feedback.
 constexpr f32 DROP_GRAB = 8.0f;
 
 // Hit test for the published {x0, y0, x1, y1} touch rects. A rect that was not
@@ -420,20 +419,22 @@ extern f32 s_pressAnim[6];
 // reverse-pinch so the eye finds where the item went. Decays in
 // beginFrameCompanionInput.
 extern f32 s_popAnim[4];
+// Detail pop: skill/mail readers and the ITEMS info reader grow out of the
+// row (or item cell) they were opened from and shrink back on close. Shared —
+// only one detail can be open at a time. readerZoomStep advances it, narrows
+// the caller's rect to the animated box and multiplies s_drawAlpha by the
+// progress; it returns false exactly once, on the frame a CLOSE finishes, so
+// the caller clears its own "detail is open" state.
 extern f32 s_readerZoomT;
 extern bool s_readerZoomClosing;
 extern f32 s_readerZoomFrom[4];
 bool readerZoomStep(f32* io_x0, f32* io_y0, f32* io_x1, f32* io_y1);
+// 1.0 = settled; for callers that draw an underlay.
 f32 readerZoomProgress();
 bool bowComboAmbiguous(int btn, u8 itemNo);
 bool readerZoomActive();
 bool collectZoomActive();
 void readerZoomOpenFrom(f32 x0, f32 y0, f32 x1, f32 y1);
-// Drag-ghost feel. s_ghostPop: pickup pop (ghost starts 15% large, eases
-// down; set to 1 when a drag engages). s_ghostFly*: after release, the
-// ghost flies and shrinks into its destination — the drop target on a
-// consumed drop, its home grid cell on a miss (t 0->1, active while
-// item != 0xFF).
 // COLLECT section grow/shrink: t eases 0->1 opening a section out of its
 // tapped library cell (s_collectZoomFrom, window coords) and back down when
 // the context tab closes it (s_collectZoomClosing; the dispatch flips the
@@ -449,17 +450,17 @@ extern bool s_leftBoxTracking;
 // column's content crossfade-by-pinch. companionWolf() stays the logic
 // truth; this is the VISUAL state.
 extern f32 s_wolfBlend;
+// Drag-ghost feel. s_ghostPop: pickup pop (ghost starts 15% large, eases
+// down; set to 1 when a drag engages). s_ghostFly*: after release, the
+// ghost flies and shrinks into its destination — the drop target on a
+// consumed drop, its home grid cell on a miss (t 0->1, active while
+// item != 0xFF).
 extern f32 s_ghostPop;
 extern f32 s_ghostFlyT;
 extern f32 s_ghostFlyFromX, s_ghostFlyFromY;
 extern f32 s_ghostFlyToX, s_ghostFlyToY;
 extern u8 s_ghostFlyItem;
 extern int s_ghostFlySlot;
-// Companion cutscene dim: 0..1, ramped in beginFrameCompanionInput while
-// dComIfGp_event_runCheck() holds. drawDashboard paints a black overlay
-// scaled by it and handleTouch swallows input above 0.5 — during events the
-// companion has nothing actionable, and a glowing dashboard next to a
-// cutscene is a distraction.
 
 // I/II slot binding = the REAL savedata select-item indices 2/3 (the Wii
 // version already reserved them), so bindings persist with the game save and
@@ -497,9 +498,8 @@ extern f32 s_contentRect[4];
 
 // Warp: opens the game's field map already armed in portal-warp mode. The
 // tap sets the request, consumed on the game frame loop (f_ap_game) where the
-// menu status write is picked up the same frame. In Functional the trigger is
-// the left column's context tab (s_ctxTabRect); the old in-map button rect is
-// retired.
+// menu status write is picked up the same frame. The trigger is the context
+// tab (s_ctxTabRect).
 extern std::atomic<bool> s_warpReq;
 
 // Functional left-column context tab: one permanent slot whose action depends
@@ -527,9 +527,10 @@ void drawContextTab(f32 x0, f32 y0, f32 x1, f32 y1);
 // content-window scissor.
 void drawCinematicContextTab(f32 x0, f32 y0, f32 x1, f32 y1);
 
-// Functional bottom-left zone: a three-page carousel, swiped horizontally.
-// Page 0 is context-sensitive (dungeon items, or the Vessel of Light during a
-// tears quest); 1 and 2 are always available.
+// Functional bottom-left zone: a page carousel, swiped horizontally. The
+// context page (dungeon items, or the Vessel of Light during a tears quest)
+// and the guide page appear only when they have content; place and progress
+// are always available.
 constexpr int LEFT_BOX_PAGES = 4;  // upper bound; the live list can be shorter
 constexpr int LEFT_BOX_CONTEXT = 0;
 constexpr int LEFT_BOX_PROGRESS = 1;
@@ -545,19 +546,20 @@ extern f32 s_leftBoxRect[4];
 // Atomic: written at touch ingress (Android UI thread), read by the game
 // thread's drag pass and by pinchZoom.
 extern std::atomic<bool> s_downOnContent;
-// Fills o_pages (>= LEFT_BOX_PAGES entries) with the available page IDs in
-// display order and returns the count. Shared by the draw and the swipe so
-// they can't disagree about what is on screen.
+// Battery glyph at (x, y) with the percentage to its right.
 void drawBattery(f32 x, f32 y);
+// Oxygen bar (else lantern oil when allowOil) spanning x0..x1; returns true
+// when a meter was drawn.
 bool drawMeterBar(f32 x0, f32 x1, f32 cy, f32 barH, bool allowOil);
 constexpr f32 CLUSTER_BTN = 38.0f;
 void publishEquipDropRect(int dropIdx, f32 x, f32 y, f32 btn = CLUSTER_BTN);
+// Colour-coded FPS readout; draws only when the FPS corner setting points at
+// the companion. Returns whether it drew.
 bool drawFpsReadout(f32 x, f32 baselineY);
 
 extern f32 s_dropBtnPos[2][2];
 extern std::atomic<int> s_batteryPct;
 extern std::atomic<bool> s_batteryCharging;
-
 
 // --- Guide reader overlay, companion_guide.cpp ---
 // An overlay over the content window rather than a Page: see the note at the
@@ -597,6 +599,9 @@ void drawContentWindow(f32 wx0, f32 wx1, f32 cy0, f32 cy1);
 f32 drawDpadGlyph(dMeter2Draw_c* md, f32 x1, f32 bottomY);
 bool drawTransformPlate(f32 bx, f32 by, f32 bw, f32 bh);
 f32 drawTransformButton(f32 x1, f32 bottomY);
+// Cinematic bottom-right row: [FPS] [battery glyph] [pct]. Returns the height
+// the d-pad column has to clear — only the FPS text shares that column, so a
+// battery alone reserves nothing.
 f32 drawStatusCorner(f32 x1, f32 bottomY);
 void drawComboChoice();
 void drawDragGhost();
@@ -608,6 +613,9 @@ void drawFunctionalLeftColumn(dMeter2Draw_c* md, f32 colX, f32 y0, f32 y1);
 void drawFunctionalCorners(dMeter2Draw_c* md, f32 w, f32 h);
 bool leftVesselAvailable();
 bool leftDungeonAvailable();
+// Fills o_pages (>= LEFT_BOX_PAGES entries) with the available page IDs in
+// display order and returns the count. Shared by the draw and the swipe so
+// they can't disagree about what is on screen.
 int leftBoxPages(int* o_pages);
 // Current region name ("Hyrule Field" / "Lakebed Temple") — the map screen's
 // own spot name, cached per stage + room. Shared by the map name plate and
@@ -649,8 +657,8 @@ extern f32 s_itemInfoBtnRect[4];
 extern f32 s_scrollItemInfo;
 
 // Reader detail views: bottom of the scrollable text region. Cinematic
-// reserves a 44px footer for the in-window Back plate; Functional retires
-// that button (the context tab is Back), so the body reclaims the space.
+// reserves a 44px footer for the in-window Back plate; Functional has no such
+// button (the context tab is Back), so the body reclaims the space.
 inline f32 readerTextBottom(f32 by1) {
     return by1 - (dusk::dualscreen::mainHudRestored() ? 6.0f : 44.0f);
 }
@@ -771,21 +779,14 @@ extern bool s_dmapResetReq;
 // showing the viewed floor; tapping opens a vertical pop-up list.
 // Unavailable floors (nothing to draw: no map item and no visited room
 // there) are dimmed and publish no rect.
-// s_dmapFloorAvail: bit (floorNo + 5) set when the floor has content.
 extern bool s_dmapFloorPickOpen;
 extern f32 s_dmapFloorPickT;
-// The game's dungeon floors span B5..7F, so every floor-indexed array and
-// every row-count clamp is bounded by this — NOT by the unrelated 13 above.
 // --- Animation curves ---
 //
 // Every companion animation is one of two shapes: an APPROACH toward a target
 // (x += (target - x) * rate) or a DECAY toward zero (x *= rate), stepped once
-// per render frame. These used to be eight ad-hoc literals scattered across
-// six files, so widgets that should have matched — the reader zoom and the
-// collect zoom, the floor picker and the page transition — drifted apart by a
-// few hundredths for no reason. The values below are the medians of what they
-// replaced, so the feel is close, but now two widgets that open the same way
-// open at the same speed.
+// per render frame. Shared so widgets that open the same way open at the same
+// speed.
 //
 // Pick by INTENT, not by number: a pop-up opens FAST, a dismissal decays FAST
 // (gone before the eye comes back), a press tail decays SOFT (felt rather than
@@ -804,10 +805,13 @@ constexpr f32 ANIM_DECAY_SOFT = 0.80f;    // tails meant to be felt: press pop, 
 constexpr f32 ANIM_DONE = 0.97f;
 constexpr f32 ANIM_ZERO = 0.03f;
 
+// The game's dungeon floors span B5..7F, so every floor-indexed array and
+// every row-count clamp is bounded by this.
 constexpr int DMAP_FLOOR_COUNT = 13;
 extern f32 s_dmapFloorRects[DMAP_FLOOR_COUNT][4];
 extern int s_dmapFloorVals[DMAP_FLOOR_COUNT];
 extern int s_dmapFloorRectCount;
+// Bit (floorNo + 5) set when the floor has content.
 extern u16 s_dmapFloorAvail;
 // Boss floor for the floor-plate marker (DMAP_FLOOR_FOLLOW when hidden:
 // needs compass, boss switch condition, boss alive — the menu's gating).
@@ -959,8 +963,7 @@ u8 gearItemFor(int idx);
 // Page content (companion_pages.cpp / companion_collect.cpp).
 
 void drawMapContent(f32 x0, f32 y0, f32 x1, f32 y1);
-// Dungeon-map helpers: floor name lookup (message resources) and the pause
-// map's link-arrow texture.
+// Dungeon floor name lookup (message resources).
 const char* dmapFloorName(int floorNo);
 
 // Functional context-tab content helpers (plate drawn by the caller). Warp
@@ -968,13 +971,14 @@ const char* dmapFloorName(int floorNo);
 // draws Floor's rightward pop-up list at (px, py).
 void drawWarpTab(f32 x0, f32 y0, f32 x1, f32 y1, bool active);
 void drawFloorTab(f32 x0, f32 y0, f32 x1, f32 y1, bool active);
+int dmapFloorCount();
 // (tx0,ty0,tx1,ty1) is the CONTEXT TAB's rect; the list drops from its
 // bottom edge, clamped into [clampY0, clampY1].
-int dmapFloorCount();
 void drawFloorColumn(f32 tx0, f32 ty0, f32 tx1, f32 ty1, f32 clampY0, f32 clampY1,
     f32 canvasH);
 void drawFloorOverlay(f32 tx0, f32 ty0, f32 tx1, f32 ty1, f32 clampY0 = 0.0f,
     f32 clampY1 = 0.0f);
+// The pause map's link-arrow texture.
 const ResTIMG* dmapLinkIconTimg();
 void drawInventoryContent(f32 x0, f32 y0, f32 x1, f32 y1);
 void drawCollectionContent(f32 x0, f32 y0, f32 x1, f32 y1);

@@ -1,10 +1,6 @@
-// Companion dashboard: the Functional ("3DS style") layout — the left column
-// of status boxes and the four corner controls.
-//
-// Split out of companion.cpp, which had grown past 3700 lines carrying both
-// HUD layouts at once. The two are selected by dualscreen::mainHudRestored()
-// and share nothing but the primitives in companion_gfx.cpp and the state in
-// companion_internal.h, so they are genuinely separate surfaces.
+// Companion dashboard: shared and Cinematic HUD widgets — top bar, tab strip,
+// content window and its page transition, button cluster, and overlays.
+// The Functional layout lives in companion_functional.cpp.
 
 #include "dusk/companion.h"
 #include "dusk/companion_internal.h"
@@ -52,10 +48,8 @@ const char* tabName(int page) {
     if (page < 0 || page >= PAGE_COUNT) {
         return "";
     }
-    // English keeps the dashboard's own uppercase tab words. The archive's
-    // 0x0062/0x0061 are literally "MAP"/"ITEMS" already, so those two would
-    // match anyway; 0x03E1 is mixed-case "Collection", and we want the
-    // uppercase house style. Other languages take the game's wording.
+    // English keeps the dashboard's own tab words; other languages take the
+    // game's wording.
     return localizedWord(l_msg[page], l_tabNames[page], true);
 }
 
@@ -64,15 +58,13 @@ f32 s_dropBtnPos[2][2];
 std::atomic<int> s_batteryPct{-1};
 std::atomic<bool> s_batteryCharging{false};
 
-// --- Hearts (pixel-drawn; the heart item icon resolves to a wrong texture) --
+// --- Hearts ----------------------------------------------------------------
 
-// Lantern oil: the game's own kantera meter (icon + radial gauge, live fill
-// state), repositioned to the right end of the hearts strip. Hidden on the
-// main screen in dual-screen mode.
-// Lantern icon + oil meter, centered vertically on cy, tight spacing, right
-// edge at rightX. Both hidden unless the lantern is equipped to X or Y
-// (matching the game HUD). Returns the left extent of what was drawn, or
-// rightX unchanged when hidden.
+// Lantern oil: the game's own kantera meter (radial gauge, live fill state)
+// plus the lantern icon, centered vertically on cy with the right edge at
+// rightX. Hidden unless the lantern is equipped to an item button (matching
+// the game HUD). Returns the left extent of what was drawn, or rightX
+// unchanged when hidden.
 f32 drawOilGauge(f32 rightX, f32 cy) {
     dMeter2Draw_c* md = meterDraw();
     if (md == NULL) {
@@ -104,8 +96,8 @@ f32 drawOilGauge(f32 rightX, f32 cy) {
         meter->setScale(1.2f, 1.2f);
         meter->setPos(meterCX, cy);
         meter->setNowGauge(dComIfGs_getMaxOil(), dComIfGs_getOil());
-        // Pin fully opaque: the game's fade-in after stage transitions left
-        // it invisible for a while.
+        // Pin fully opaque: the game's fade-in after stage transitions would
+        // leave it invisible for a while.
         meter->setAlphaRate(1.0f);
         meter->drawSelf();
     }
@@ -146,9 +138,8 @@ void drawHeartsRow(f32 x0, f32 x1) {
             // our companion coordinates — and the main screen's hierarchical
             // draw CONSUMES that matrix rather than recomputing it
             // (J2DPane::draw: MTXConcat(parent->mGlobalMtx, mPositionMtx,
-            // ...)). Leaving it clobbered showed up as displaced duplicate
-            // hearts the moment the HUD moved back to the main screen. Save
-            // and restore it around the draw.
+            // ...)). Left clobbered, it shows displaced duplicate hearts once
+            // the HUD moves back to the main screen. Save and restore it.
             Mtx saved;
             MTXCopy(*heartPics[j]->getMtx(), saved);
             // No mulDrawAlpha here: drawHeartsRow is only reached from the
@@ -240,10 +231,6 @@ void drawEquipTargets() {
     }
 }
 
-// Equipped items in the game HUD's diagonal cluster arrangement, drawn over
-// the top-right of the content area (no boxes).
-
-
 // B shows the equipped sword when no special B item overrides it (fishing
 // rod etc.) — dynamic across wooden/Ordon/Master/Light. Hidden in menus
 // (start screen etc.), like the game HUD.
@@ -257,8 +244,6 @@ u8 resolveBItem(bool menuOpen) {
     }
     return bItem;
 }
-
-
 
 void drawButtonAmmoChip(int ammo, f32 x, f32 y) {
     constexpr GXColor COL_CHIP = {10, 9, 7, 210};
@@ -345,7 +330,6 @@ void drawItemCluster(f32 x1, f32 y0) {
     // game HUD, which swaps to the wolf button set.
     const bool wolf = companionWolf();
 
-    // Tight diamond: X top, Y left, B bottom, A right — side buttons pulled in.
     // Menu state first: several elements below hide while a menu is up.
     const int winStatus = dMeter2Info_getWindowStatus();
     const bool menuOpen = dComIfGp_isPauseFlag() || winStatus != 0;
@@ -424,8 +408,7 @@ void drawItemCluster(f32 x1, f32 y0) {
 
     drawMidnaButton(md, x1 - 46.0f, y0 - 12.0f);
 
-    // A button, right of center (same row as Y), pulled 20% of the Y-A
-    // span toward Y, with action word below.
+    // A button, right of center on Y's row, with its action word below.
     const f32 ax = x1 - BTN - 18.0f;
     const f32 ay = y0 + 42.0f;
     drawPaneComposite(ga::cast(md)->getButtonPane(0), ax, ay, BTN, BTN);
@@ -558,7 +541,6 @@ void drawTabs(f32 x0, f32 x1, f32 h) {
         s_tabRectCount++;
     }
 }
-
 
 // The pause menu's stone-block backdrop, tiled and tinted down to the same
 // smoky dark warm grey the game fades it to.
@@ -697,8 +679,7 @@ void drawVesselOfLight(dMeter2Draw_c* md, f32 x1, f32 h) {
     }
 }
 
-// Window chrome from the game's own menu art. Frame recipe (converged over
-// many visual iterations with the user): DOUBLE LINE2 rule along the top, a
+// Window chrome from the game's own menu art: DOUBLE LINE2 rule along the top, a
 // SINGLE rule at the bottom (the tab strip sits right under it — a second
 // line there just crowds the context tab), one dark drawn rule down each
 // side (continued by the tab strip's bed so the two read as one line), and
@@ -742,13 +723,10 @@ void drawWindowOrnaments(f32 x0, f32 y0, f32 x1, f32 y1) {
     }
 }
 
-// uses the Link-display box's own mottled background (TT_YAKUSHIMA) with a
-// thin frame line, like the collection screen.
+// Content window: the window fill over the Link-display box's own mottled
+// background (TT_YAKUSHIMA), like the collection screen, with the current
+// page (and any page transition) clipped inside it.
 void drawContentWindow(f32 wx0, f32 wx1, f32 cy0, f32 cy1) {
-
-
-
-
     // Published for the touch pass: page hit-tests inset off these edges the
     // same way the page draws below do.
     s_contentRect[0] = wx0;
@@ -875,16 +853,9 @@ void drawContentWindow(f32 wx0, f32 wx1, f32 cy0, f32 cy1) {
     drawCinematicContextTab(wx0 + 4.0f, cy0 + 4.0f, wx1 - 4.0f, cy1 - 4.0f);
     s_winClip[2] = 0;
     GXSetScissorRender(0, 0, s_nativeW, s_nativeH);
-    // Border, built from the collection screen's own ornament set (verified
-    // against zelda_collect_soubi_screen.blo): the base panel's soft edge
-    // strip along the sides, LINE2 rules top and bottom, a corner flourish in
-    // each corner, and gold swirl accents on the top rule.
-    //
-    // Drawn AFTER the page, and outside the clip, so it is never touched by
-    // the content fade. The page rect is the full window and the content only
-    // insets a few pixels, so it overlapped the frame: when the content faded,
-    // the frame underneath was revealed and the whole border appeared to
-    // animate. On top it simply stays put.
+    // Border drawn AFTER the page, and outside the clip, so the content fade
+    // never touches it: the content overlaps the frame by a few pixels, so a
+    // frame underneath would be revealed by the fade and appear to animate.
     drawWindowOrnaments(wx0, cy0, wx1, cy1);
     // Guide LAST, so it covers the ornaments rather than being covered by
     // them: its buttons and text sit in the window's corners, exactly where
@@ -974,18 +945,13 @@ bool drawTransformPlate(f32 bx, f32 by, f32 bw, f32 bh) {
     return true;
 }
 
-// Defined below with the other Functional chrome. File-local: the corner
-// boxes exist only in this layout.
-
-
 f32 drawTransformButton(f32 x1, f32 bottomY) {
-    // Content-derived width, matching the original layout exactly: 5px pad
-    // each side around the two portraits and the arrow.
+    // Content-derived width: 5px pad each side around the two portraits and
+    // the arrow.
     constexpr f32 bw = 5.0f * 2.0f + 24.0f * 2.0f + 3.0f * 2.0f + 12.0f;
     constexpr f32 bh = 34.0f;
     return drawTransformPlate(x1 - 142.0f, bottomY - bh, bw, bh) ? bh : 0.0f;
 }
-
 
 f32 drawStatusCorner(f32 x1, f32 bottomY) {
     // The battery glyph is 12 tall; its pct text baseline sits at y + 11.
@@ -1075,19 +1041,5 @@ void drawDragGhost() {
     drawItemIconSilhouette(s_dragSlot, dragItem, gx - 4.0f, gy - 4.0f, g + 8.0f, 0xECD054FFu);
     drawItemIcon(s_dragSlot, dragItem, gx, gy, g);
 }
-
-// --- Functional layout -----------------------------------------------------
-
-
-
-
-
-// Left column: transform button on top, rupee and small-key counters, the
-// dungeon item icons, and the Z button at the bottom. Mirrors the reference
-// layout's camera/ocarina bookends.
-// Top zone: a dark box with the game's own rupee composite, drawn larger.
-// Panel that bleeds in from the screen's left edge: flush left (no margin, no
-// left chamfer) with only its right corners cut, so it reads as part of the
-// screen rather than a floating box.
 
 }  // namespace dusk::companion

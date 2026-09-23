@@ -56,20 +56,12 @@ J2DPicture* bindIconPic(const ResTIMG* timg) {
     return s_iconPic;
 }
 
-// Composite every textured layer of a HUD pane subtree (button base, ring,
-// gloss, letter) into a box, preserving each layer's relative geometry and
-// tint — this is what makes the buttons look like the real HUD buttons.
+// One textured layer of a HUD pane subtree, bounds relative to the root.
 struct PaneLayer {
     J2DPicture* pic;
     f32 x0, y0, x1, y1;
 };
 
-// Global content alpha, 0..1. Multiplied into every primitive's colour so a
-// block of drawing can be faded as a whole WITHOUT painting anything over it —
-// the window's backdrop, border and ornaments stay untouched and visible
-// through the fade, which a covering veil could not do.
-// Always restore to 1.0f: it is deliberately not scoped, because the page
-// content is drawn through dozens of call sites.
 }  // namespace
 
 u8 mulDrawAlpha(u8 a) {
@@ -90,8 +82,7 @@ void drawPoppedDown(f32 t, f32 x0, f32 y0, f32 x1, f32 y1, void (*draw)(f32, f32
     const f32 ox = (x1 - x0) * shrink * 0.5f;
     const f32 oy = (y1 - y0) * shrink * 0.5f;
     // Multiply, never assign: this can run INSIDE a page transition that is
-    // already fading the whole page. Assigning stomped that outer fade, so the
-    // outgoing page stayed opaque and then snapped.
+    // already fading the whole page, and assigning would stomp that outer fade.
     const f32 prevA = s_drawAlpha;
     s_drawAlpha = prevA * (t < 1.0f ? 1.0f - t : 0.0f);
     draw(x0 + ox, y0 + oy, x1 - ox, y1 - oy);
@@ -288,7 +279,6 @@ GXColor lerpGX(GXColor a, GXColor b, f32 t) {
         (u8)((int)a.a + (int)(((int)b.a - (int)a.a) * t))};
 }
 
-
 }  // namespace
 
 // A chamfered octagon filled with a smooth top-to-bottom colour gradient
@@ -344,8 +334,7 @@ f32 bevelChamfer(f32 x0, f32 y0, f32 x1, f32 y1) {
 
 // Top-left inner highlight and bottom-right shade: two thin, offset chamfer
 // frames give the edge a lit/shadowed bevel. Enabled-state only (callers
-// skip it for the flat disabled look). Returns nothing to restore — pure
-// draws.
+// skip it for the flat disabled look).
 void bevelInnerFrames(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, int M) {
     const f32 r = BEVEL_FACE_INSET;
     f32 fch = ch - r * 0.6f;
@@ -429,10 +418,6 @@ void fillDisc(f32 cx, f32 cy, f32 r, GXColor color) {
     fillPoly(xy, SEGS, color);
 }
 
-// The tab plate drawn into a CHAMFERED silhouette, by stacking horizontal
-// strips of the texture whose width follows the chamfer diagonal. Nothing is
-// painted outside the shape, so the backdrop shows through the cut corners —
-// masking them with a fill colour left visible corner patches instead.
 // One over-scaled draw of the plate, clipped to a rectangle by the render
 // scissor. Over-scaling pushes the plate's own baked-in frame OUTSIDE the box
 // so the rect samples only its interior grain — otherwise that frame paints a
@@ -446,6 +431,10 @@ static void plateStrip(const ResTIMG* plate, f32 ox, f32 oy, f32 ow, f32 oh, f32
     drawTimgTinted(plate, ox, oy, ow, oh, alpha, black, white);
 }
 
+// The tab plate drawn into a CHAMFERED silhouette, by stacking horizontal
+// strips of the texture whose width follows the chamfer diagonal. Nothing is
+// painted outside the shape, so the backdrop shows through the cut corners —
+// masking them with a fill colour would leave visible corner patches.
 void drawChamferPlate(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, bool selected, int cornerMask) {
     const ResTIMG* plate = decoTimg(DECO_TAB_PLATE);
     if (plate == NULL) {
@@ -468,16 +457,10 @@ void drawChamferPlate(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, bool selected, int
     const f32 ox = x0 - (ow - bw) * 0.5f;
     const f32 oy = y0 - (oh - bh) * 0.5f;
 
-    // A band whose two corners are BOTH unmasked is a plain rectangle, so the
-    // per-row loop below would emit `ch` identical full-width one-row strips
-    // for it — each one a textured draw plus a scissor change. cornerMask 0 is
-    // the worst case and is on two per-frame callers (the Cinematic context
-    // tab and kOverlayRow, both ch=12): 25 draws collapse to 1. An open floor
-    // picker in a tall dungeon was costing up to 325 of them per frame.
-    // (These bands tile exactly with the middle one at y0+ch / y1-ch. With the
-    // integer ch every caller passes, that is the same coverage the loop
-    // produced; a fractional ch would additionally close a sub-pixel hairline
-    // the loop left, since it steps only (int)ch rows.)
+    // A band whose two corners are BOTH unmasked is a plain rectangle: draw
+    // it as one strip rather than `ch` one-row strips, each a textured draw
+    // plus a scissor change. cornerMask 0 is on per-frame callers (the
+    // Cinematic context tab and kOverlayRow, both ch=12).
     const bool topSquare = (cornerMask & (1 | 2)) == 0;
     const bool botSquare = (cornerMask & (4 | 8)) == 0;
     if (topSquare && botSquare) {
@@ -606,39 +589,8 @@ void drawText(f32 x, f32 y, f32 size, u32 rgba, const char* fmt, ...) {
     dComIfGp_getCurrentGrafPort()->setup2D();
 }
 
-// NOT CURRENTLY USED — see the guide reader, which reverted to plain drawText.
-//
-// On device this produced "draw vertex data overrun: need 596000 bytes at pos
-// 34239, have 225861". 596000 bytes for a 4-vertex quad is ~149KB per vertex,
-// which is not a vertex count problem: it means the vertex FORMAT in effect
-// when the glyph drew was not the one the font assumes. Passing a context
-// makes drawChar_scale skip its own pushDrawState(), so the format becomes
-// this code's responsibility for the whole span — and something between the
-// begin and the glyphs is still changing it. Desktop did not reproduce it.
-//
-// Re-enabling needs on-device verification, not desktop: the two behave
-// differently here.
-//
-// Batched text draw: begin once, draw many lines, end once.
-//
-// The font's PC path keeps every glyph in one joined texture, and
-// JUTResFont::loadImage rebinds it per glyph unless a FontDrawContext says it
-// is already bound. drawString_size_scale takes no context, so drawText pays
-// one GXLoadTexObj per glyph — measured at 1600 binds for one screen of prose
-// against a whole-frame baseline of 836.
-//
-// The setup MUST be hoisted, not done per line. setGX() and setup2D()
-// reconfigure GX state and invalidate the binding, so calling them between
-// lines while the latch still claims the font is resident desyncs the command
-// FIFO outright (observed: vertex data parsed as an opcode). That is why this
-// is a begin/end pair rather than a drop-in replacement for drawText.
-//
-// The per-glyph GXBegin is untouched — inherent to drawChar_scale — so this
-// halves the added GX traffic rather than eliminating it.
-
 // Exact pixel width of a string at the given size (matches drawText's
-// width scale), using the font's own metrics — the per-char estimate was
-// off for proportional glyphs, mis-centering words like "Attack"/"Enter".
+// width scale), using the font's own per-glyph metrics.
 f32 measureText(f32 size, const char* text) {
     JUTFont* font = mDoExt_getMesgFont();
     if (font == NULL || text == NULL || font->getCellWidth() <= 0) {
@@ -646,9 +598,8 @@ f32 measureText(f32 size, const char* text) {
     }
     // Sum per-glyph ink widths — exactly the advance drawText's visible pass
     // uses (drawChar_scale with flag=true advances by width.field_0x1 only).
-    // The previous drawString-based measure used the flag=false first-char
-    // path, overshooting by the leading bearing and biasing labels left —
-    // and it silently rasterized the string at the canvas origin.
+    // Measuring via drawString would take the flag=false first-char path,
+    // overshooting by the leading bearing, and rasterize at the origin.
     const f32 scale = (size * 0.85f) / (f32)font->getCellWidth();
     f32 w = 0.0f;
     for (const u8* c = (const u8*)text; *c != 0; c++) {
@@ -659,7 +610,6 @@ f32 measureText(f32 size, const char* text) {
     return w;
 }
 
-// Draw text centered on cx using measured width.
 // Uppercase in the font's own encoding. The message font is LATIN-1
 // (verified: o-umlaut = 0xF6, sharp-s = 0xDF), so the accented lowercase
 // block 0xE0-0xFE maps to uppercase by subtracting 0x20 — except 0xF7
@@ -677,19 +627,14 @@ void toUpperLatin1(char* s) {
 }
 
 // An archive string in whatever language the game is running, interned by
-// message ID. Every lookup is a linear scan of the whole .bmg, and the
-// hand-rolled `static char buf[N]; if (buf[0] == 0) fetch` idiom had grown to
-// eight sites with four different buffer sizes, two IDs fetched twice over,
-// and three copies that rescanned every frame whenever the archive legitimately
-// came back empty. This is both the safer and the cheaper way to ask for a word.
-// Use it for content the game names (item names); use localizedWord below for
-// UI labels, where English keeps the dashboard's own wording.
+// message ID so callers need no static buffer of their own and the .bmg (a
+// linear scan per lookup) is not rescanned every frame. Use it for content the
+// game names (item names); use archiveLabel/localizedWord for UI labels,
+// where English keeps the dashboard's own wording.
 const char* archiveText(u32 msgId, const char* fallback, bool upper);
 
 // A UI LABEL that also exists in the archive. English keeps the dashboard's
-// own (terser) wording; every other language takes the game's. Same policy as
-// localizedWord, but sharing archiveText's interning so no caller-owned static
-// buffer is needed. Use this for labels; archiveText for content the game names.
+// own (terser) wording; every other language takes the game's.
 const char* archiveLabel(u32 msgId, const char* english, bool upper) {
     if (OSGetLanguage() == OS_LANGUAGE_ENGLISH) {
         return english;
@@ -702,15 +647,12 @@ const char* archiveText(u32 msgId, const char* fallback, bool upper) {
         return fallback;
     }
     // 33 distinct (id, upper) pairs are reachable in one non-English session
-// (3 tabs + Poe + Info/Back + Hawkeye + Fused Shadows + Mirror Shards +
-// Caught/Record + 6 fish + Hidden Skills + 7 skill ordinals + Bugs + Fish
-// Journal + Mail + 5 scents), so 32 was one short: the 33rd interner lost its
-// name permanently and silently. Sized with headroom, and it now says so.
-// RETRY_GAP spaces the attempts out. They used to be consecutive draws, so a
-// page opened during a room transition burned all eight inside ~130 ms — well
-// within the window where the archive is legitimately absent — and latched the
-// English fallback for the rest of the session, which is the exact failure the
-// budget exists to prevent. Eight tries 20 draws apart span ~2.7 s instead.
+    // (3 tabs + Poe + Info/Back + Hawkeye + Fused Shadows + Mirror Shards +
+    // Caught/Record + 6 fish + Hidden Skills + 7 skill ordinals + Bugs + Fish
+    // Journal + Mail + 5 scents); 64 leaves headroom, and overflow is logged.
+    // RETRY_GAP spaces the fetch attempts ~2.7 s apart in total: back-to-back
+    // retries during a room transition, while the archive is legitimately
+    // absent, would all miss and latch the English fallback for the session.
 enum { WORD_CACHE_MAX = 64, FETCH_TRIES = 8, RETRY_GAP = 20 };
     static char l_text[WORD_CACHE_MAX][64];
     static u32 l_ids[WORD_CACHE_MAX];
@@ -780,9 +722,8 @@ const char* localizedWord(u32 msgId, const char* english, bool upper) {
 // dashboard's plates are fixed width, so anything showing archive text needs
 // this rather than a hardcoded size.
 f32 fittedTextSize(f32 size, f32 minSize, f32 maxW, const char* text) {
-    // No room at all — the floor size is the only honest answer. (Same
-    // reading of maxW <= 0 as drawTextEllipsized, which draws the ellipsis
-    // alone; these two used to disagree about it.)
+    // No room at all — the floor size is the only honest answer (consistent
+    // with drawTextEllipsized, which draws the ellipsis alone).
     if (maxW <= 0.0f) {
         return minSize;
     }
@@ -791,8 +732,7 @@ f32 fittedTextSize(f32 size, f32 minSize, f32 maxW, const char* text) {
         return size;
     }
     // measureText scales linearly with size, so the exact fit is one division
-    // away — no need to step down 0.5 at a time re-measuring the whole string.
-    // Snap down to the same 0.5 grid the stepping loop produced.
+    // away. Snap down to a 0.5 grid.
     f32 fitted = (f32)(int)((maxW * size / w) * 2.0f) * 0.5f;
     if (fitted < minSize) {
         fitted = minSize;
@@ -803,15 +743,10 @@ f32 fittedTextSize(f32 size, f32 minSize, f32 maxW, const char* text) {
     return fitted;
 }
 
-// Left-aligned text clipped to maxW with a trailing ellipsis. Used by the
-// list rows, whose columns sit at fixed x positions — a long localized
-// subject or technique name would otherwise run straight into the next
-// column with nothing to stop it.
 // Length in bytes of the longest prefix of `text` that measures <= maxW.
 // The font is LATIN-1 (one byte per glyph) and measureText is a plain per-byte
-// sum of advances, so prefix widths accumulate exactly — one walk instead of
-// re-measuring every candidate prefix, which is what made the list rows and
-// the description wrapper O(n^2) per frame.
+// sum of advances, so prefix widths accumulate exactly — one O(n) walk instead
+// of re-measuring every candidate prefix.
 int fitPrefix(f32 size, f32 maxW, const char* text) {
     JUTFont* font = mDoExt_getMesgFont();
     if (font == NULL || text == NULL || font->getCellWidth() <= 0) {
@@ -833,6 +768,9 @@ int fitPrefix(f32 size, f32 maxW, const char* text) {
     return n;
 }
 
+// Left-aligned text clipped to maxW with a trailing ellipsis. Used by the
+// list rows, whose columns sit at fixed x positions — a long localized
+// subject or technique name would otherwise run into the next column.
 void drawTextEllipsized(f32 x, f32 y, f32 size, f32 maxW, u32 rgba, const char* text) {
     if (text == NULL || text[0] == 0) {
         return;
@@ -868,22 +806,21 @@ void drawTextCentered(f32 cx, f32 y, f32 size, u32 rgba, const char* text) {
     drawText(cx - measureText(size, text) * 0.5f, y, size, rgba, "%s", text);
 }
 
-// Draw a texture through J2DPicture (JUTTexture handles palettes and EFB-copy
-// formats), reusing one picture object with changeTexture (no reallocation).
-// Drop the retexture latch. drawTimg and its eight siblings all skip
-// changeTexture when the incoming pointer equals s_lastTimg, so freeing a blob
-// whose address a later allocation reuses would draw the OLD picture — and if
-// aurora has since dropped that texobj from its cache, re-upload
-// old_w * old_h * 4 bytes out of a possibly-smaller blob. Anyone freeing a
-// ResTIMG that may have been drawn calls this first.
+// Drop the retexture latch. bindIconPic skips changeTexture when the incoming
+// pointer equals s_lastTimg, so freeing a blob whose address a later
+// allocation reuses would draw the OLD picture — and if aurora has since
+// dropped that texobj from its cache, re-upload old_w * old_h * 4 bytes out of
+// a possibly-smaller blob. Anyone freeing a ResTIMG that may have been drawn
+// calls this first.
 //
-// Unconditional rather than pointer-matched on purpose: there is one latch
-// shared by all nine sites, so clearing it outright cannot miss an entry and
-// cannot be forgotten at a new free site. It costs one extra changeTexture.
+// Unconditional rather than pointer-matched on purpose: clearing the one
+// shared latch outright cannot miss an entry. It costs one extra changeTexture.
 void gfxForgetTimgLatch() {
     s_lastTimg = NULL;
 }
 
+// Draw a texture through J2DPicture (JUTTexture handles palettes and EFB-copy
+// formats), reusing one picture object with changeTexture (no reallocation).
 void drawTimg(const ResTIMG* timg, f32 x, f32 y, f32 w, f32 h, u8 alpha) {
     if (bindIconPic(timg) == NULL) {
         return;
@@ -1008,8 +945,8 @@ void drawMenuBox(f32 x0, f32 y0, f32 x1, f32 y1, u32 fillRgba) {
             // The plate is a near-square with only a small corner radius, so
             // the fill's corner cut must be small too — a big chamfer left
             // black triangles between the fill's diagonal and the plate rim.
-            // Fixed pixel cut (not a fraction of height) so wide counter
-            // cells match the square cells.
+            // Scaled off the short side and capped, so wide counter cells
+            // match the square cells.
             const f32 side = w < h ? w : h;
             f32 ch = side * 0.12f;
             if (ch > 7.0f) {
@@ -1075,6 +1012,9 @@ void drawTabPlate(f32 x, f32 y, f32 w, f32 h, bool selected) {
     }
 }
 
+// Composite every textured layer of a HUD pane subtree (button base, ring,
+// gloss, letter) into a box, preserving each layer's relative geometry and
+// tint, so the buttons look like the real HUD buttons.
 // o_map (optional, 5 floats): the root-relative -> box affine used for the
 // layers — {dstX, dstY, minX, minY, scale}; scale stays 0 when nothing drew.
 void drawPaneComposite(J2DPane* root, f32 x, f32 y, f32 boxW, f32 boxH, u8 minAlpha,
@@ -1170,7 +1110,7 @@ void drawButtonCircleBase(dMeter2Draw_c* md, int xyIdx, f32 x, f32 y, f32 box) {
     dComIfGp_getCurrentGrafPort()->setup2D();
 }
 
-// Render a count with the game's own HUD digit textures (main 2D archive),
+// Render a count with the game's own HUD digit textures (main 2D archive).
 void drawHudNumber(int value, f32 x, f32 y, f32 digitH) {
     if (value < 0) {
         value = 0;

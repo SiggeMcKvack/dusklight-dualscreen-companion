@@ -24,19 +24,14 @@ bool decode_png_to_rgba(const std::string& bytes, RgbaImage& out);
 // because ResTIMG::imageOffset is a delta from the header itself.
 std::vector<std::uint8_t> build_timg(const RgbaImage& img);
 
-// Stores an image for later display.
-//
-// Keeps the COMPRESSED source bytes, not the decoded texture. A 512x512 RGBA8
-// blob is 1 MB, and a 23-chapter guide has ~2000 images — that was 2 GB on
-// disk. The same images as JPEG are ~40 KB each, so this is ~25x smaller and
-// the decode moves to load time, where a bounded RAM cache already limits it.
 // Reads just the dimensions of an already-stored image, in the SAME units
 // store_image_file reports (i.e. after the import downscale), without decoding
-// the pixels. Needed because a re-import of a page whose images are already on
-// disk skips the store step entirely and would otherwise leave the recorded
-// size at 0, which makes the reader reserve alt-text height for a real image.
+// the pixels. Used when a re-import finds the image already on disk.
 bool probe_image_size(const std::filesystem::path& file, int* o_width, int* o_height);
 
+// Validates and stores an image for later display. Keeps the compressed source
+// bytes, not the decoded texture: a 512x512 RGBA8 blob is 1 MB versus ~40 KB as
+// JPEG, and the decode at load time is bounded by the reader's RAM cache.
 bool store_image_file(const std::string& bytes, const std::filesystem::path& outFile,
     int* o_width = nullptr, int* o_height = nullptr);
 

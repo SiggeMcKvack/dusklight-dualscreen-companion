@@ -313,7 +313,6 @@ std::string slugify(const std::string& title) {
 
 // --- the scanner ------------------------------------------------------------
 
-
 // One attribute's value out of a tag's attribute text. Shared by the image
 // reader and the furniture filter below.
 std::string tag_attr(const std::string& attrs, const char* key) {
@@ -349,11 +348,8 @@ bool is_raw_text_element(const std::string& name) {
 }
 
 // Index just past the end of the element whose opening tag ended at `i`.
-//
-// Counts nested tags of the same name. The old code took the first matching
-// close tag, which is right for <script> but wrong for a <div> wrapper: an ad
-// block containing any nested div ended the skip early and let the rest of the
-// ad through as prose.
+// Counts nested tags of the same name, so an ad <div> wrapping other divs is
+// skipped whole rather than ending at the first inner close tag.
 std::size_t skip_element(const std::string& html, std::size_t i, const std::string& name) {
     if (is_raw_text_element(name)) {
         const std::size_t e = html.find("</" + name, i);
@@ -398,10 +394,9 @@ std::size_t skip_element(const std::string& html, std::size_t i, const std::stri
 // Whether an element is page furniture rather than guide prose, judged by its
 // class and id.
 //
-// Tag names alone cannot tell an advert from a paragraph: both are divs. Users
-// running an ad blocker never saw this, because the blocker removed the markup
-// before the page was ever saved — everyone else got adverts, share buttons and
-// comment threads converted into guide text alongside the walkthrough.
+// Tag names alone cannot tell an advert from a paragraph: both are divs.
+// Without this, adverts, share buttons and comment threads (unless an ad
+// blocker stripped them before saving) would be converted as guide text.
 //
 // Matched on whole class tokens where the word is short enough to appear inside
 // real words ("ad" is in "shadow", "loaded", "ready"), and on substrings only
@@ -507,11 +502,9 @@ Document convert_html(const std::string& html, const std::string& sourceUrl) {
         // An h1/h2 opens a new section; deeper headings stay inside one.
         if (kind == NodeKind::Heading && level <= 2) {
             // The site's hub page lists every chapter as its own <h2>
-            // ("Chapter 1 - The Twilight" ... "Chapter 22 - ..."), so importing
-            // it produced a guide whose 22 "sections" were pure navigation.
-            // Dropping the heading means no section opens for it; a page that
-            // is nothing BUT these ends up with no sections at all and is
-            // therefore never stored, which is the desired outcome.
+            // ("Chapter 1 - The Twilight" ...). Dropping these means no section
+            // opens for them, so a page that is nothing but navigation ends up
+            // with no sections and is never stored.
             if (is_nav_label(t)) {
                 return;
             }
@@ -538,11 +531,9 @@ Document convert_html(const std::string& html, const std::string& sourceUrl) {
 
     for (std::size_t i = 0; i < html.size();) {
         if (html[i] != '<') {
-            // Accumulated ALWAYS, not only inside a recognised block tag.
-            // Real pages put prose in <section>, <article>, bare containers and
-            // inline wrappers, and gating on a known-tag whitelist silently
-            // dropped all of it — a chapter came through as nothing but its
-            // images. Block tags below delimit; the skip list above is what
+            // Accumulated always, not only inside a recognised block tag: real
+            // pages put prose in <section>, <article>, bare containers and
+            // inline wrappers. Block tags below delimit; the skip list is what
             // keeps nav and script text out.
             text.push_back(html[i]);
             i++;
@@ -605,12 +596,9 @@ Document convert_html(const std::string& html, const std::string& sourceUrl) {
         if (name.size() == 2 && name[0] == 'h' && name[1] >= '1' && name[1] <= '6') {
             flush();
             if (closing) {
-                // MUST reset. Leaving kind == Heading meant any bare text
-                // between </h2> and the next block tag was flushed AS A
-                // HEADING — so a stray line after a heading became its own
-                // section (and, if it was the first, the document title and
-                // therefore the guide id). Every other block tag resets on
-                // open, so headings were uniquely affected.
+                // Must reset: otherwise bare text between </h2> and the next
+                // block tag is flushed as a heading and opens a bogus section
+                // (possibly becoming the document title and guide id).
                 kind = NodeKind::Paragraph;
                 level = 0;
             } else {
@@ -681,11 +669,6 @@ Document convert_html(const std::string& html, const std::string& sourceUrl) {
     if (!cur.nodes.empty() || !cur.title.empty()) {
         doc.sections.push_back(std::move(cur));
     }
-    // Content that appears before the first heading (lead paragraphs, infobox
-    // prose) lands in a section with no title, and therefore no slug. An empty
-    // id is not a usable filename stem or progress key and id_is_safe() would
-    // reject it, so give it a stable one. Sections that are empty AND untitled
-    // are page furniture, not content — drop them.
     // Content before the first heading is page furniture on a real site — nav
     // links, breadcrumbs, a stray byline — not guide text, and it cannot be
     // named or jumped to because it has no heading to slug. Dropped outright.

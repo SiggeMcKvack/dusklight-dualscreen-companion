@@ -10,18 +10,12 @@
 
 namespace dusk::guide {
 
-// Internal: the import worker's image supplier. Was in the header, but nothing
-// outside this file ever used it.
+// Internal: the import worker's image supplier.
 ImageSource network_image_source();
 
 namespace {
 
-
-
-
-
-
-// Same shape as FetchTask: worker thread, atomic done flag, joined on take.
+// One scan_import_folder() run on a worker thread; joined when reaped.
 class ImportTask {
 public:
     ImportTask() {

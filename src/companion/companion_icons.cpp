@@ -14,13 +14,11 @@
 #include "d/d_meter2_info.h"
 #include "res/Layout/clctres.h"
 
-
 namespace dusk::companion {
 namespace {
 
 // Item icons are 0xC00-byte BTI resources read from the item icon archive.
-// Cache slots: 24 inventory + B/X/Y buttons + fixed UI icons. All static —
-// no game-heap allocations, so stage transitions can't invalidate us.
+// Cache slots: 24 inventory + B/X/Y buttons + fixed UI icons.
 alignas(32) u8 s_iconBuf[ICON_SLOT_COUNT][ICON_BUF_SIZE];
 u8 s_iconItem[ICON_SLOT_COUNT];
 bool s_iconValid[ICON_SLOT_COUNT];
@@ -151,12 +149,13 @@ void drawItemIcon(int slot, u8 itemNo, f32 x, f32 y, f32 size, u8 alpha) {
         s_itemPic[slot][i]->setAlpha(mulDrawAlpha(alpha));
         s_itemPic[slot][i]->draw(dx, dy, w, h, false, false, false);
     }
-    // The map texture cache tracks s_iconPic only; these draws do not touch it.
+    // These per-slot pictures bypass companion_gfx's shared s_iconPic, so its
+    // retexture latch is unaffected.
     dComIfGp_getCurrentGrafPort()->setup2D();
 }
 
 // Flat-color silhouette of an item icon — drawn slightly enlarged behind
-// the real icon it forms a colored border/glow. Preserves each layer's own
+// the real icon, it forms a colored border/glow. Preserves each layer's own
 // tint colors around the draw.
 void drawItemIconSilhouette(int slot, u8 itemNo, f32 x, f32 y, f32 size, u32 rgba) {
     f32 dx, dy, w, h;
@@ -274,7 +273,6 @@ void loadCollectIcons() {
 const ResTIMG* dusklightLogoTimg() {
     return (const ResTIMG*)l_dusklightLogo;
 }
-
 
 const ResTIMG* decoTimg(int slot) {
     if (slot < 0 || slot >= DECO_COUNT || !s_decoValid[slot]) {

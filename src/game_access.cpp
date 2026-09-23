@@ -79,7 +79,7 @@ static J2DPicture* findBestPicture(CPaneMgr* i_mgr) {
 
 // ---------------------------------------------------------------------------
 // Dual-screen companion accessors (dusk fork): pane/texture getters and draw
-// hooks consumed by src/dusk/companion*.cpp. Everything up to initLife().
+// hooks consumed by src/companion/*.cpp.
 // ---------------------------------------------------------------------------
 
 // Button pane managers: 0=A 1=B 2=X 3=Y 4=Z, NULL otherwise.
@@ -98,14 +98,14 @@ CPaneMgr* dMeter2DrawAccess::getButtonMgr(int i_which) {
     }
 }
 
-// Whole button pane subtrees (0=A 1=B 2=X 3=Y), for layer-composited
-// rendering on the companion.
+// Whole button pane subtrees (same indexing as getButtonMgr), for
+// layer-composited rendering on the companion.
 J2DPane* dMeter2DrawAccess::getButtonPane(int i_which) {
     CPaneMgr* mgr = getButtonMgr(i_which);
     return mgr != NULL ? mgr->getPanePtr() : NULL;
 }
 
-// Face button base pictures for the companion cluster (0=A 1=B 2=X 3=Y).
+// Face button base pictures for the companion cluster (indexed as getButtonMgr).
 // Returned as pictures so the caller can reuse their tint colors: the button
 // graphics are intensity textures colored by the pane's black/white TEV.
 J2DPicture* dMeter2DrawAccess::getButtonBasePicture(int i_which) {
@@ -169,7 +169,6 @@ J2DPane* dMeter2DrawAccess::getMidnaButtonPaneRaw() {
     return mpButtonMidona->getPanePtr();
 }
 
-// A tear-of-light picture from the vessel layout.
 J2DPicture* dMeter2DrawAccess::getLightDropPicture() {
     return findBestPicture(mpLightDropParent);
 }
@@ -203,7 +202,6 @@ J2DPane* dMeter2DrawAccess::getButtonCrossPane() {
     return mpButtonCrossParent != NULL ? mpButtonCrossParent->getPanePtr() : NULL;
 }
 
-// Vessel of Light pane subtree for full companion compositing.
 J2DPane* dMeter2DrawAccess::getLightDropPane() {
     return mpLightDropParent != NULL ? mpLightDropParent->getPanePtr() : NULL;
 }
@@ -366,7 +364,6 @@ void dMeter2DrawAccess::pushVesselStateForCompanion(f32* o_alpha, f32* o_x, f32*
     }
     o_scale[0] = panes[0] != NULL ? panes[0]->getScaleX() : 1.0f;
     o_scale[1] = panes[0] != NULL ? panes[0]->getScaleY() : 1.0f;
-    // Canonical corner layout (positions, scale, textures, alphas).
     refreshVesselForCompanion();
 }
 
@@ -384,7 +381,6 @@ void dMeter2DrawAccess::popVesselStateForCompanion(const f32* i_alpha, const f32
         panes[0]->scale(i_scale[0], i_scale[1]);
     }
 }
-
 
 // The live kantera (lantern oil) meters, repositionable via setPos.
 dKantera_icon_c* dMeter2DrawAccess::getKanteraMeter(int i_no) {
@@ -566,10 +562,9 @@ bool daAlinkAccess::checkQuickTransformOK() {
     if (checkStageName("R_SP161")) {
         return false;
     }
-    // The fork also required the main screen's Z button to be fully lit (as a proxy for "Midna
-    // available"). This port hides the Z pane on the main screen in BOTH layouts, so the game's
-    // own dim animation leaves that alpha at an arbitrary value and the proxy read false in the
-    // Wii U layout. The conditions it stood for are all checked explicitly here.
+    // The fork gated on the main screen's Z button being fully lit as a "Midna available"
+    // proxy; this port hides that pane in both layouts, so its alpha is meaningless. The
+    // conditions it stood for are checked explicitly instead.
     // The game will crash if trying to quick transform while holding the Ball and Chain.
     if (mEquipItem == dItemNo_IRONBALL_e) {
         return false;

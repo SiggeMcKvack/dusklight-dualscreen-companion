@@ -1,8 +1,8 @@
 // Companion dungeon map: a live, full-floor render of the pause menu's
 // dungeon map (renderingDmap_c pair owned by dMenu_DmapMap_c), driven during
 // gameplay for the second screen. The pause menu only renders this while the
-// world is frozen; here it re-renders every frame, so room states, doors and
-// (later) the player arrow stay live. The renderer registers itself on the
+// world is frozen; here it re-renders every frame, so room states and doors
+// stay live. The renderer registers itself on the
 // frame's copy-2D drawlist, the same pipeline stage the minimap uses.
 
 #include "dusk/companion.h"
@@ -291,8 +291,7 @@ void dmapUpdate() {
         }
     }
     if (s_page.load() != PAGE_MAP) {
-        // Keep the instance (and its last texture) but skip the render pass
-        // while the map page isn't showing.
+        // Keep the instance (and its last texture) while the page is hidden.
         return;
     }
     // While the game's own dungeon map screen is up, yield: the copy-2D
@@ -392,8 +391,7 @@ void dmapUpdate() {
         if (onPlayerFloor && stayRoomValid) {
             dMapInfo_n::getRoomCenter(stayNo, &tx, &tz);
             // Re-fit the zoom to the room being followed, gliding alongside
-            // the pan: crossing a door into a differently-sized room used to
-            // keep the old room's zoom until a manual Reset.
+            // the pan, so crossing into a differently-sized room refits it.
             const f32 fit = roomFitZoom(stayNo, size);
             if (fit > 0.0f) {
                 s_dmapZoom += (fit - s_dmapZoom) * ANIM_RATE_GLIDE;

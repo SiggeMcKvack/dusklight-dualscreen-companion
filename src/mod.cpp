@@ -23,6 +23,7 @@
 
 #include "d/d_com_inf_game.h"
 #include "d/d_meter2_info.h"
+#include "d/d_save.h"
 #include "dolphin/dvd.h"
 
 #include <cstring>
@@ -99,6 +100,14 @@ void pump_input() {
 // The fork's duskExecute() additions: requests the touch layer queued during the draw pass are
 // consumed here, on the game thread, in the frame loop.
 void run_companion_frame() {
+    // The game only refreshes the play-side mirror of select items 0/1 (dMeter2_c::_create
+    // loops i < 2), so after a save is loaded the slot buttons' entries hold stale raw values and
+    // the companion draws the wrong icon for them. Resolve them from the save every frame; the
+    // setter is trivial and idempotent.
+    for (int i = SELECT_ITEM_DOWN; i < MAX_SELECT_ITEM; i++) {
+        dComIfGp_setSelectItem(i);
+    }
+
     dusk::companion::beginFrameCompanionInput();
     dsc::slots::update();
 

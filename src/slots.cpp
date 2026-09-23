@@ -10,11 +10,20 @@
 namespace dsc::slots {
 namespace {
 
-// Slot I <-> X (index 0), slot II <-> Y (index 1); the slot's binding lives in select index
-// 2 + slot.
-int g_holdBtn = -1;  // X/Y currently held on a slot's behalf
-// Temporary borrow (Ooccoo only): the X/Y binding to put back once her warp has started.
-int g_borrowBtn = -1;
+// Slot I (save select index 2) is a real item button: hooks.cpp injects its BTN_Z bit after the
+// pad is sampled and teaches the item-button functions about index 2, so nothing is needed here.
+//
+// Slot II (index 3) has no free mask bit of its own -- 1 << 3 is BTN_B, which is live item code --
+// so it still routes through the Y button: a press exchanges the slot's item with Y's and leaves
+// it there (restoring the binding on release would unequip worn items), and the button's previous
+// item takes the slot. Ooccoo is the exception: her quick-use restores the slot binding itself, so
+// the Y binding is put back once the warp has started.
+constexpr int kSlotII = 1;
+constexpr int kButtonY = SELECT_ITEM_Y;
+constexpr int kSlotSelectIndex = SELECT_ITEM_DOWN;  // slot I
+
+bool g_slotIIHeld = false;
+bool g_borrowed = false;
 u8 g_borrowSelect = 0xFF;
 u8 g_borrowMix = 0xFF;
 int g_restoreFrames = -1;
@@ -24,49 +33,40 @@ bool is_ooccoo(u8 item) {
 }
 
 void restore_borrow() {
-    if (g_borrowBtn < 0) {
+    if (!g_borrowed) {
         return;
     }
-    dComIfGs_setSelectItemIndex(g_borrowBtn, g_borrowSelect);
-    dComIfGs_setMixItemIndex(g_borrowBtn, g_borrowMix);
-    dComIfGp_setSelectItem(g_borrowBtn);
-    g_borrowBtn = -1;
+    dComIfGs_setSelectItemIndex(kButtonY, g_borrowSelect);
+    dComIfGs_setMixItemIndex(kButtonY, g_borrowMix);
+    dComIfGp_setSelectItem(kButtonY);
+    g_borrowed = false;
     g_restoreFrames = -1;
 }
 
-void press(int slot) {
-    const u8 slotSel = dComIfGs_getSelectItemIndex(2 + slot);
+void press_slot_ii() {
+    const u8 slotSel = dComIfGs_getSelectItemIndex(kSlotSelectIndex + 1);
     if (slotSel >= MAX_ITEM_SLOTS) {
         return;  // empty slot; the companion shows its own "no slot" message
     }
-    const int btn = slot;  // X for slot I, Y for slot II
-    const u8 btnSel = dComIfGs_getSelectItemIndex(btn);
-    const u8 btnMix = dComIfGs_getMixItemIndex(btn);
-    const u8 slotMix = dComIfGs_getMixItemIndex(2 + slot);
+    const u8 btnSel = dComIfGs_getSelectItemIndex(kButtonY);
+    const u8 btnMix = dComIfGs_getMixItemIndex(kButtonY);
+    const u8 slotMix = dComIfGs_getMixItemIndex(kSlotSelectIndex + 1);
 
+    dComIfGs_setSelectItemIndex(kButtonY, slotSel);
+    dComIfGs_setMixItemIndex(kButtonY, slotMix);
     if (is_ooccoo(dComIfGs_getItem(slotSel, false))) {
-        // Borrow: the companion's quick-use restores the SLOT binding itself and expects the
-        // press to leave no trace, so the button binding goes back after the warp event starts.
-        g_borrowBtn = btn;
+        g_borrowed = true;
         g_borrowSelect = btnSel;
         g_borrowMix = btnMix;
         g_restoreFrames = -1;
-        dComIfGs_setSelectItemIndex(btn, slotSel);
-        dComIfGs_setMixItemIndex(btn, slotMix);
-        dComIfGp_setSelectItem(btn);
     } else {
-        // Exchange: the slot's item moves onto the button and STAYS there, so items that are
-        // worn while equipped (iron boots, a held boomerang, the lantern) are not unequipped by
-        // a binding change on release. The button's previous item takes the slot.
-        dComIfGs_setSelectItemIndex(btn, slotSel);
-        dComIfGs_setMixItemIndex(btn, slotMix);
-        dComIfGs_setSelectItemIndex(2 + slot, btnSel);
-        dComIfGs_setMixItemIndex(2 + slot, btnMix);
-        dComIfGp_setSelectItem(btn);
-        dComIfGp_setSelectItem(2 + slot);
+        dComIfGs_setSelectItemIndex(kSlotSelectIndex + 1, btnSel);
+        dComIfGs_setMixItemIndex(kSlotSelectIndex + 1, btnMix);
+        dComIfGp_setSelectItem(kSlotSelectIndex + 1);
     }
-    g_holdBtn = btn;
-    dusk::companion::setSlotParked(slot);
+    dComIfGp_setSelectItem(kButtonY);
+    g_slotIIHeld = true;
+    dusk::companion::setSlotParked(kSlotII);
 }
 
 }  // namespace
@@ -75,20 +75,15 @@ void update() {
     const uint32_t trig = dusk::companion::slotTriggerBits();
     const uint32_t hold = dusk::companion::slotHoldBits();
 
-    if (g_holdBtn < 0) {
-        for (int slot = 0; slot < 2 && g_holdBtn < 0; slot++) {
-            if (trig & (1u << slot)) {
-                press(slot);
-            }
-        }
+    if (!g_slotIIHeld && (trig & (1u << kSlotII))) {
+        press_slot_ii();
     }
-    if (g_holdBtn >= 0 && (hold & (1u << g_holdBtn)) == 0) {
-        // Released.
+    if (g_slotIIHeld && (hold & (1u << kSlotII)) == 0) {
         dusk::companion::setSlotParked(-1);
-        if (g_borrowBtn >= 0) {
+        if (g_borrowed) {
             g_restoreFrames = 0;  // Ooccoo: wait for the warp event (or a cap)
         }
-        g_holdBtn = -1;
+        g_slotIIHeld = false;
     }
     if (g_restoreFrames >= 0) {
         g_restoreFrames++;
@@ -99,19 +94,15 @@ void update() {
 }
 
 uint32_t pad_hold_mask() {
+    // Slot I presses reach Link as BTN_Z from the setStickData hook, not through the pad.
     const uint32_t hold = dusk::companion::slotHoldBits();
-    if (g_holdBtn == 0 && (hold & 1u)) {
-        return PAD_BUTTON_X;
-    }
-    if (g_holdBtn == 1 && (hold & 2u)) {
-        return PAD_BUTTON_Y;
-    }
-    return 0;
+    return (g_slotIIHeld && (hold & (1u << kSlotII))) ? PAD_BUTTON_Y : 0u;
 }
 
 void shutdown() {
     dusk::companion::setSlotParked(-1);
     restore_borrow();
+    g_slotIIHeld = false;
 }
 
 }  // namespace dsc::slots

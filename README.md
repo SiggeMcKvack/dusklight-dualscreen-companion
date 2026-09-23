@@ -71,15 +71,17 @@ into Dusklight's `mods/` folder (with a shared data folder: `adb push build/mods
 - **No swap-screens** (needs a launcher Activity). The guide reader and its in-app browser are
   ported; the import worker does not fetch images over HTTP (the browser hands them over when it
   saves a page).
-- **Slot I/II are routed through X and Y.** In the fork the two extra touch buttons are real item
-  buttons 2/3; that needs changes to Link's own code (wider button masks, renumbered button bits,
-  every "two item buttons" loop in `daAlink_c`) that a mod cannot make. In this mod a slot press
-  *exchanges* the slot's
-  item with the X button (slot I) or the Y button (slot II), presses that button, and leaves the
-  item there; the item that was on X/Y takes the slot. Pressing the slot again swaps them back.
-  So X/Y change under you when you use a slot, and worn items (iron boots, held boomerang, lantern)
-  stay equipped on X/Y rather than on the slot. Ooccoo's quick-use is the one exception: her
-  binding is put back automatically once the warp starts.
+- **Slot I is a real item button; slot II is routed through Y.** Slot I uses save select index 2,
+  whose button bit (`BTN_Z`) no item code reads, so the mod injects it after the pad is sampled and
+  teaches the small item-button functions in `daAlink_c` about index 2 — the item equips, holds and
+  fires like one on X or Y, and the binding lives in the save. (Thanks to the reporter of issue #1
+  and to [OTPR26/twilight-hd-hud](https://github.com/OTPR26/twilight-hd-hud), which does the same
+  for its third slot. Note that both mods would claim index 2, so they cannot both own it.)
+  Slot II has no equivalent: index 3's bit is `BTN_B`, which the game really uses. A slot II press
+  therefore *exchanges* the slot's item with the Y button, presses Y and leaves the item there
+  (restoring the binding on release would unequip worn items); the item that was on Y takes the
+  slot, and pressing again swaps back. The fork's four real item buttons need wider button masks
+  and a renumbered bit enum in `daAlink_c` — that part is still a game change, not a mod one.
 - The vessel-of-light glow animates per frame rather than per game tick.
 
 ## License

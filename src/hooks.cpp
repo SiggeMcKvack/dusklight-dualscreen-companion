@@ -55,6 +55,13 @@ DEFINE_HOOK(&renderingAmap_c::getPlayerCursorSize, AmapPlayerCursorSize);
 DEFINE_HOOK(&renderingAmap_c::getRestartCursorSize, AmapRestartCursorSize);
 DEFINE_HOOK(&map_render_size_for, MapRenderSizeFor);
 DEFINE_HOOK(&mDoCPd_c::read, PadRead);
+DEFINE_HOOK(&daAlink_c::setStickData, LinkSetStickData);
+DEFINE_HOOK(&daAlink_c::midnaTalkTrigger, LinkMidnaTalkTrigger);
+DEFINE_HOOK(&daAlink_c::checkItemChangeFromButton, LinkCheckItemChangeFromButton);
+DEFINE_HOOK(&daAlink_c::checkSetItemTrigger, LinkCheckSetItemTrigger);
+DEFINE_HOOK(&daAlink_c::checkItemSetButton, LinkCheckItemSetButton);
+DEFINE_HOOK(&daAlink_c::checkItemButtonChange, LinkCheckItemButtonChange);
+DEFINE_HOOK(&daAlink_c::allUnequip, LinkAllUnequip);
 DEFINE_HOOK(&dComIfGp_setSelectItem, SetSelectItem);
 DEFINE_HOOK(&dMsgObject_c::setSmellTypeLocal, SetSmellType);
 DEFINE_HOOK(&fopScnM_ChangeReq, SceneChangeReq);
@@ -466,6 +473,147 @@ void on_map_render_size_post(ModContext*, void*, void* retval, void*) {
     size.y = boost(size.y);
 }
 
+// ---- slot I as a real item button (save select index 2) ----
+//
+// The game's item buttons are X (select index 0) and Y (index 1), and it derives a button's mask
+// from its index: itemButton()/itemTrigger() are itemButtonCheck(1 << mSelectItemId)
+// (d_a_alink.cpp:9361-9367). Index 2 already exists in the save (MAX_SELECT_ITEM = 4) and its
+// natural bit 1 << 2 is BTN_Z, which no item code reads -- the only reader is midnaTalkTrigger
+// (:9384). So the companion's slot I can be a genuine item button: inject BTN_Z after the pad is
+// sampled and teach the four small item-button functions about index 2. Everything downstream
+// (checkNewItemChange, changeItemTriggerKeepProc, the ~25 itemButton()/itemTrigger() call sites in
+// the item procs) is already index-agnostic and needs no help.
+//
+// Index 3 gets no such treatment: its natural bit 1 << 3 is BTN_B, which IS live item code, so
+// slot II keeps the X/Y exchange in slots.cpp.
+
+constexpr u8 kSlotSelectIndex = SELECT_ITEM_DOWN;  // 2
+
+// Set for the frame when the companion (not the physical Z button) asserted BTN_Z.
+bool s_slotZInjected = false;
+
+bool slot_item_on(daAlink_c* link, int itemNo) {
+    return link->checkGroupItem(itemNo, dComIfGp_getSelectItem(kSlotSelectIndex));
+}
+
+// After the pad has been sampled: setStickData zeroes both masks and repopulates them
+// (d_a_alink.cpp:9402-9535), so this is where an extra button bit belongs.
+void on_set_stick_data_post(ModContext*, void* args, void*, void*) {
+    auto* link = ::mods::arg<daAlink_c*>(args, 0);
+    const uint32_t trig = companion::slotTriggerBits();
+    const uint32_t hold = companion::slotHoldBits();
+    s_slotZInjected = (hold & 1u) != 0;
+    if (trig & 1u) {
+        link->mItemTrigger |= daAlink_c::BTN_Z;
+    }
+    if (hold & 1u) {
+        link->mItemButton |= daAlink_c::BTN_Z;
+    }
+}
+
+// BTN_Z is shared with the Midna call. A companion press must not summon her; the physical Z
+// button still does.
+HookAction on_midna_talk_trigger_pre(ModContext*, void*, void* retval, void*) {
+    if (s_slotZInjected && mDoCPd_c::getTrigZ(PAD_1) == 0) {
+        *static_cast<BOOL*>(retval) = FALSE;
+        return HOOK_SKIP_ORIGINAL;
+    }
+    return HOOK_CONTINUE;
+}
+
+// The dispatch loop (d_a_alink.cpp:12171) only covers indices 0-1. Handle index 2 ahead of the
+// original and let it run untouched otherwise, so the sword, canoe and put-away branches stay
+// vanilla. Guarded on the same outer conditions as the loop it stands in for.
+HookAction on_check_item_change_from_button_pre(ModContext*, void* args, void* retval, void*) {
+    auto* link = ::mods::arg<daAlink_c*>(args, 0);
+    if (!link->checkModeFlg(4) || link->checkEquipAnime() || link->checkBoomerangThrowAnime() ||
+        link->checkCopyRodThrowAnime() || link->checkKandelaarSwingAnime() || link->swordTrigger())
+    {
+        return HOOK_CONTINUE;
+    }
+    const int procType = link->checkNewItemChange(kSlotSelectIndex);
+    if (procType == 0 || !link->itemTriggerCheck(daAlink_c::BTN_Z)) {
+        return HOOK_CONTINUE;
+    }
+    *static_cast<BOOL*>(retval) = link->changeItemTriggerKeepProc(kSlotSelectIndex, procType);
+    return HOOK_SKIP_ORIGINAL;
+}
+
+// "Is this item's button being pressed?" — extend to index 2 (vanilla: :14409).
+HookAction on_check_set_item_trigger_pre(ModContext*, void* args, void* retval, void*) {
+    auto* link = ::mods::arg<daAlink_c*>(args, 0);
+    const int itemNo = ::mods::arg<int>(args, 1);
+    if (!slot_item_on(link, itemNo) || !link->itemTriggerCheck(daAlink_c::BTN_Z)) {
+        return HOOK_CONTINUE;  // vanilla still answers for X/Y
+    }
+    if (itemNo != dItemNo_HVY_BOOTS_e) {  // same exception as the original
+        link->mSelectItemId = kSlotSelectIndex;
+    }
+    *static_cast<int*>(retval) = 1;
+    return HOOK_SKIP_ORIGINAL;
+}
+
+// "Which button carries this item?" — vanilla answers 0, 1, or 2 for "on no button" (:14430).
+// That sentinel is the same value as slot I's index, and its most important consumer is the
+// auto-unequip at the end of checkItemChangeFromButton (:12204): an item that reports "no button"
+// is taken out of Link's hands the very next frame. So report X for anything sitting on slot I.
+//
+// The cost of lying is small and bounded: the handful of callers that use the return as an index
+// (:14674 for item 0x108, canoe.inc:1716) read X's item instead of the slot's, and the heavy-boots
+// direct-use HUD bit at :18243 is set for X. The alternative — reporting the true index 2 — makes
+// every slot I item unequip itself immediately.
+HookAction on_check_item_set_button_pre(ModContext*, void* args, void* retval, void*) {
+    auto* link = ::mods::arg<daAlink_c*>(args, 0);
+    const int itemNo = ::mods::arg<int>(args, 1);
+    // Only when the item is on slot I and nowhere else; vanilla already answers for X/Y.
+    if (link->checkGroupItem(itemNo, dComIfGp_getSelectItem(SELECT_ITEM_X)) ||
+        link->checkGroupItem(itemNo, dComIfGp_getSelectItem(SELECT_ITEM_Y)) ||
+        !slot_item_on(link, itemNo))
+    {
+        return HOOK_CONTINUE;
+    }
+    *static_cast<int*>(retval) = SELECT_ITEM_X;
+    return HOOK_SKIP_ORIGINAL;
+}
+
+// Retarget mSelectItemId at whichever button carries the item in hand, slot I included
+// (vanilla :11306, two buttons).
+HookAction on_check_item_button_change_pre(ModContext*, void* args, void*, void*) {
+    auto* link = ::mods::arg<daAlink_c*>(args, 0);
+    if (link->mProcID == daAlink_c::PROC_CANOE_PADDLE_PUT ||
+        link->mEquipItem == dItemNo_NONE_e || link->checkEquipAnime())
+    {
+        return HOOK_SKIP_ORIGINAL;
+    }
+    constexpr int kButtons = kSlotSelectIndex + 1;
+    for (u8 i = 0; i < kButtons; i++) {
+        if (link->mEquipItem != dComIfGp_getSelectItem(i)) {
+            continue;
+        }
+        bool otherOwns = false;
+        for (u8 j = 0; j < kButtons; j++) {
+            if (j != i && link->mEquipItem == dComIfGp_getSelectItem(j) &&
+                link->mSelectItemId == j)
+            {
+                otherOwns = true;
+            }
+        }
+        if (!otherOwns) {
+            link->mSelectItemId = i;
+        }
+    }
+    return HOOK_SKIP_ORIGINAL;
+}
+
+// The put-away path looks for the lantern on a button before equipping it (:12119); slot I counts.
+HookAction on_all_unequip_pre(ModContext*, void* args, void*, void*) {
+    auto* link = ::mods::arg<daAlink_c*>(args, 0);
+    if (dComIfGp_getSelectItem(kSlotSelectIndex) == dItemNo_KANTERA_e) {
+        link->mSelectItemId = kSlotSelectIndex;
+    }
+    return HOOK_CONTINUE;
+}
+
 // ---- companion slot I lives in select index 2 (fork d_com_inf_game.cpp / d_msg_object.cpp) ----
 
 // Retail's index 2 is the Wii wolf down-button: dComIfGp_setSelectItem stores the RAW SLOT NUMBER
@@ -598,6 +746,13 @@ bool install() {
     ok &= add_post<AmapRestartCursorSize>(on_cursor_size_post) == MOD_OK;
     ok &= add_post<MapRenderSizeFor>(on_map_render_size_post) == MOD_OK;
     ok &= add_post<PadRead>(on_pad_read_post) == MOD_OK;
+    ok &= add_post<LinkSetStickData>(on_set_stick_data_post) == MOD_OK;
+    ok &= add_pre<LinkMidnaTalkTrigger>(on_midna_talk_trigger_pre) == MOD_OK;
+    ok &= add_pre<LinkCheckItemChangeFromButton>(on_check_item_change_from_button_pre) == MOD_OK;
+    ok &= add_pre<LinkCheckSetItemTrigger>(on_check_set_item_trigger_pre) == MOD_OK;
+    ok &= add_pre<LinkCheckItemSetButton>(on_check_item_set_button_pre) == MOD_OK;
+    ok &= add_pre<LinkCheckItemButtonChange>(on_check_item_button_change_pre) == MOD_OK;
+    ok &= add_pre<LinkAllUnequip>(on_all_unequip_pre) == MOD_OK;
     ok &= add_pre<SetSelectItem>(on_set_select_item_pre) == MOD_OK;
     ok &= add_pre<SetSmellType>(on_set_smell_pre) == MOD_OK;
     ok &= add_post<SetSmellType>(on_set_smell_post) == MOD_OK;

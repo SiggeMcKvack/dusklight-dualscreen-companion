@@ -1,0 +1,31 @@
+# Bug-focused: style families that fight the decomp conventions (NULL, C arrays,
+# f32 literals, layout constants) are left out on purpose, and so are checks
+# that only flag intentional patterns here: f32/int layout math, +0.5 rounding
+# of non-negative sizes, grid row indices, signed game fields (floor numbers),
+# pointer casts into game resource data, the mod SDK's service-import macro.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-incorrect-roundings,
+  -bugprone-integer-division,
+  -bugprone-signed-char-misuse,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  performance-*,
+  -performance-enum-size,
+  -performance-no-int-to-ptr,
+  clang-analyzer-*,
+  -clang-analyzer-optin.*,
+  -clang-analyzer-security.FloatLoopCounter,
+  readability-misleading-indentation,
+  readability-redundant-*,
+  readability-duplicate-include,
+  readability-inconsistent-declaration-parameter-name,
+  readability-non-const-parameter,
+  misc-redundant-expression,
+  misc-unused-*,
+  misc-definitions-in-headers
+# Our own headers only: not stb, aurora, the upstream dusk copies or the submodule.
+HeaderFilterRegex: 'dusklight-dualscreen-companion/src/(companion|guide|include/dusk/(companion|dualscreen|game_access|guide/))|dusklight-dualscreen-companion/src/[a-z_]+\.hpp'

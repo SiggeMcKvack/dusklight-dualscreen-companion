@@ -239,7 +239,7 @@ u8 resolveBItem(bool menuOpen) {
         return dItemNo_NONE_e;
     }
     u8 bItem = dComIfGs_getBButtonItemKey();
-    if (bItem == dItemNo_NONE_e || bItem == 0xFF) {
+    if (bItem == dItemNo_NONE_e) {
         bItem = dComIfGs_getSelectEquipSword();
     }
     return bItem;

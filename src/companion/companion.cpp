@@ -1047,8 +1047,11 @@ void tickGaugeWarning() {
             queueHaptic(HAPTIC_LIGHT);
             sWarnEcho = 8;
         }
-        if (sWarnEcho > 0 && --sWarnEcho == 0) {
-            queueHaptic(HAPTIC_LIGHT);
+        if (sWarnEcho > 0) {
+            sWarnEcho--;
+            if (sWarnEcho == 0) {
+                queueHaptic(HAPTIC_LIGHT);
+            }
         }
     }
 }

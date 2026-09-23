@@ -928,8 +928,7 @@ void processDragTouch(f32 w, f32 h) {
     // column or the tab strip is not a scroll of the reader.
     if (guideIsOpen() && s_downOnContent) {
         scrollVar = &s_scrollGuide;
-    } else
-    if (s_page.load() == PAGE_COLLECTION) {
+    } else if (s_page.load() == PAGE_COLLECTION) {
         const int ctab = s_collectTab.load();
         if (ctab == 3 || ctab == 4) {
             scrollVar = s_readerSel >= 0 ? &s_scrollBody

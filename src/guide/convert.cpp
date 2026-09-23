@@ -154,7 +154,7 @@ std::string utf8_to_latin1(const std::string& in) {
         const unsigned char c = (unsigned char)in[i];
         std::uint32_t cp = 0;
         int len = 1;
-        if (c < 0x80) {
+        if (c < 0x80) {  // NOLINT(bugprone-branch-clone): same body as the invalid-lead fallback
             cp = c;
         } else if ((c & 0xE0) == 0xC0 && i + 1 < in.size()) {
             cp = ((std::uint32_t)(c & 0x1F) << 6) | (in[i + 1] & 0x3F);

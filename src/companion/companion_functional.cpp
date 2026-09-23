@@ -334,7 +334,7 @@ void drawDayNightGlyph(f32 cx, f32 cy, f32 r, bool night) {
 
 // Page 2: where and when. The region name is the same string the map plate
 // shows, wrapped to the column width.
-void drawLeftPlaceBox(f32 x1, f32 y0, f32 y1) {
+void drawLeftPlaceBox(f32 x1, f32 y0, f32 /*y1*/) {
     const int hour = dKy_getdaytime_hour();
     // Quantised to 5 game minutes. Not for cost — these are plain getters and
     // the panel redraws every frame regardless — but because a game minute is

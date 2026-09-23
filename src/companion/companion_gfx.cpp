@@ -335,16 +335,16 @@ f32 bevelChamfer(f32 x0, f32 y0, f32 x1, f32 y1) {
 // Top-left inner highlight and bottom-right shade: two thin, offset chamfer
 // frames give the edge a lit/shadowed bevel. Enabled-state only (callers
 // skip it for the flat disabled look).
-void bevelInnerFrames(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, int M) {
+void bevelInnerFrames(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, int cornerMask) {
     const f32 r = BEVEL_FACE_INSET;
     f32 fch = ch - r * 0.6f;
     if (fch < 0.0f) {
         fch = 0.0f;
     }
     drawChamferFrame(x0 + r, y0 + r, x1 - r - 1.0f, y1 - r - 1.0f, fch, 1.2f,
-        {112, 105, 92, 130}, M);
+        {112, 105, 92, 130}, cornerMask);
     drawChamferFrame(x0 + r + 1.0f, y0 + r + 1.0f, x1 - r, y1 - r, fch, 1.2f, {0, 0, 0, 90},
-        M);
+        cornerMask);
 }
 
 }  // namespace
@@ -354,14 +354,15 @@ void bevelInnerFrames(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, int M) {
 // physical button. Disabled greys the rim and flattens the gradient. The
 // corner buttons pass the default all-corner mask; the context tabs pass a
 // top-only mask (1|2) so they sit flush against the screen edge below.
-void drawBeveledCornerButton(f32 x0, f32 y0, f32 x1, f32 y1, bool enabled, int M) {
+void drawBeveledCornerButton(f32 x0, f32 y0, f32 x1, f32 y1, bool enabled, int cornerMask) {
     const f32 ch = bevelChamfer(x0, y0, x1, y1);
     // Dark seat, one pixel proud all round, so the rim reads against the
     // stone backdrop instead of blending into it.
-    fillChamferRect(x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, ch + 1.0f, {0, 0, 0, 150}, M);
+    fillChamferRect(x0 - 1.0f, y0 - 1.0f, x1 + 1.0f, y1 + 1.0f, ch + 1.0f, {0, 0, 0, 150},
+        cornerMask);
     // Gold rim: a solid plate under the face (a frame ring here would risk
     // hairline seams against the face's chamfer diagonal).
-    fillChamferRect(x0, y0, x1, y1, ch, enabled ? BEVEL_RIM_GOLD : BEVEL_RIM_GREY, M);
+    fillChamferRect(x0, y0, x1, y1, ch, enabled ? BEVEL_RIM_GOLD : BEVEL_RIM_GREY, cornerMask);
     // Face: inset off the rim, top light → bottom dark for a raised look.
     const f32 r = BEVEL_FACE_INSET;
     f32 fch = ch - r * 0.6f;
@@ -370,21 +371,21 @@ void drawBeveledCornerButton(f32 x0, f32 y0, f32 x1, f32 y1, bool enabled, int M
     }
     const GXColor top = enabled ? GXColor{80, 75, 65, 255} : GXColor{52, 50, 46, 255};
     const GXColor bot = enabled ? GXColor{37, 35, 30, 255} : GXColor{31, 30, 27, 255};
-    fillChamferVGrad(x0 + r, y0 + r, x1 - r, y1 - r, fch, top, bot, M);
+    fillChamferVGrad(x0 + r, y0 + r, x1 - r, y1 - r, fch, top, bot, cornerMask);
     if (enabled) {
-        bevelInnerFrames(x0, y0, x1, y1, ch, M);
+        bevelInnerFrames(x0, y0, x1, y1, ch, cornerMask);
     }
 }
 
 // Just the beveled button's BORDER — the gold rim and its lit/shadowed inner
 // bevel — with no face fill, so it can wrap a caller-drawn plate (the context
 // tabs keep the game's own plate texture as their fill but take this rim).
-void drawBeveledBorder(f32 x0, f32 y0, f32 x1, f32 y1, bool enabled, int M) {
+void drawBeveledBorder(f32 x0, f32 y0, f32 x1, f32 y1, bool enabled, int cornerMask) {
     const f32 ch = bevelChamfer(x0, y0, x1, y1);
     drawChamferFrame(x0, y0, x1, y1, ch, BEVEL_FACE_INSET,
-        enabled ? BEVEL_RIM_GOLD : BEVEL_RIM_GREY, M);
+        enabled ? BEVEL_RIM_GOLD : BEVEL_RIM_GREY, cornerMask);
     if (enabled) {
-        bevelInnerFrames(x0, y0, x1, y1, ch, M);
+        bevelInnerFrames(x0, y0, x1, y1, ch, cornerMask);
     }
 }
 
@@ -618,9 +619,7 @@ f32 measureText(f32 size, const char* text) {
 void toUpperLatin1(char* s) {
     for (; *s != 0; s++) {
         const unsigned char c = (unsigned char)*s;
-        if (c >= 'a' && c <= 'z') {
-            *s = (char)(c - 0x20);
-        } else if (c >= 0xE0 && c <= 0xFE && c != 0xF7) {
+        if ((c >= 'a' && c <= 'z') || (c >= 0xE0 && c <= 0xFE && c != 0xF7)) {
             *s = (char)(c - 0x20);
         }
     }

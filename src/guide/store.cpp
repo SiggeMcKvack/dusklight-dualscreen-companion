@@ -343,6 +343,7 @@ std::string import_html_file(const std::filesystem::path& file, const std::strin
     // that folder, because browsers rewrite some names on save.
     const std::filesystem::path dir = file.parent_path();
     const std::filesystem::path assets = dir / (file.stem().string() + "_files");
+    // NOLINTNEXTLINE(bugprone-exception-escape): only std::bad_alloc can escape
     ImageSource local = [dir, assets, netFallback](const std::string& url, std::string& out) {
         std::error_code ec;
         // `url` has been through resolve_url, so recover the trailing path.
@@ -443,7 +444,11 @@ std::string import_html_content(const std::string& html, const std::string& sour
                 if (bare.empty()) {
                     continue;
                 }
-                const std::string file = prefix.empty() ? bare : prefix + "-" + bare;
+                std::string file = prefix;
+                if (!file.empty()) {
+                    file += '-';
+                }
+                file += bare;
                 const std::filesystem::path dest = imgDir / file;
                 // Upgrade an unprefixed file in place: re-fetching is not an
                 // option, since the site refuses non-browser image requests.

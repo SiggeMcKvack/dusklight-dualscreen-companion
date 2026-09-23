@@ -20,6 +20,9 @@
 namespace dusk::companion {
 namespace {
 
+// Hex escapes are split ("Zur\xFC" "cksetzen") so they stop before the next
+// letter; clang-tidy reads that as a missing comma.
+// NOLINTBEGIN(bugprone-suspicious-missing-comma)
 // [id][language], indexed by OS_LANGUAGE_* (0=EN 1=DE 2=FR 3=ES 4=IT).
 const char* const l_strings[][5] = {
     // STR_RESET
@@ -184,6 +187,7 @@ const char* const l_strings[][5] = {
      "No puedes teletransportarte aqu\xED",
      "Non puoi teletrasportarti qui"},
 };
+// NOLINTEND(bugprone-suspicious-missing-comma)
 
 // The table is declared UNSIZED on purpose: a row missing here is then a size
 // mismatch caught right below, instead of C++ silently zero-filling a short

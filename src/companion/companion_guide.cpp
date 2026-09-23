@@ -650,7 +650,11 @@ void wrapNode(const dusk::guide::Node& n, f32 width) {
             continue;
         }
         if (!word.empty()) {
-            std::string cand = line.empty() ? word : line + " " + word;
+            std::string cand = line;
+            if (!cand.empty()) {
+                cand += ' ';
+            }
+            cand += word;
             if (measureText(size, cand.c_str()) > avail && !line.empty()) {
                 flushLine();
                 line = word;
@@ -853,6 +857,8 @@ void guideRowTap(int row) {
     if (row < 0 || row >= (int)s_browse.size()) {
         return;
     }
+    // A copy on purpose: rebuildBrowseList() below replaces s_browse.
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
     const BrowseRow r = s_browse[(std::size_t)row];
     if (r.section < 0) {
         s_expanded = s_expanded == r.guideIndex ? -1 : r.guideIndex;

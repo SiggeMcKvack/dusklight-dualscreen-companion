@@ -419,6 +419,7 @@ HookAction on_map_draw_pre(ModContext*, void* args, void*, void*) {
     auto* map = ::mods::arg<dMap_c*>(args, 0);
     f32 offX, offZ, texelScale;
     if (map == minimap() && companion::mapViewAdjust(&offX, &offZ, &texelScale)) {
+        // NOLINTNEXTLINE(clang-analyzer-core.NullDereference): map is the hooked call's `this`
         s_savedCenterX = map->mCenterX;
         s_savedCenterZ = map->mCenterZ;
         s_savedTexel = map->field_0x58;

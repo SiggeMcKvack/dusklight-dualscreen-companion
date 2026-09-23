@@ -1282,7 +1282,7 @@ void drawMapNamePlate(f32 x0, f32 y0) {
 // button: top-right on the map (with a drop-down floor list), bottom-right
 // on items/collect. Functional draws it in the left column instead, so this
 // is a no-op there.
-void drawCinematicContextTab(f32 x0, f32 y0, f32 x1, f32 y1) {
+void drawCinematicContextTab(f32 /*x0*/, f32 y0, f32 x1, f32 y1) {
     if (dusk::dualscreen::mainHudRestored()) {
         return;
     }

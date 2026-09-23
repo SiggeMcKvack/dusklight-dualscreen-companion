@@ -160,7 +160,7 @@ void beginHudCapture() {
             DuskLog.info("dualscreen: displayAvailable={} setting={} launched={} wanted={} "
                          "enabled={} hudReady={} splash={} everPresented={} leftGameplay={}",
                 (bool)s_displayAvailable, getSettings().game.dualScreen.getValue(),
-                (bool)dusk::IsGameLaunched, wanted, enabled, ready, s_splash,
+                dusk::IsGameLaunched, wanted, enabled, ready, s_splash,
                 (bool)s_everPresented, s_leftGameplay);
         }
     }

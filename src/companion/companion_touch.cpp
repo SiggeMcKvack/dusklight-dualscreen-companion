@@ -410,15 +410,12 @@ int invCellIndexAt(f32 tx, f32 ty) {
     return -1;
 }
 
-// Drop-target index under (tx, ty) with an 8px grab margin, -1 when none:
+// Drop-target index under (tx, ty) with the DROP_GRAB margin, -1 when none:
 // 0/1 the real X/Y buttons, 2/3 the I/II slot bindings. Entries the current
 // layout didn't publish this frame have zero width.
 int dropTargetAt(f32 tx, f32 ty) {
     for (int i = 0; s_dropRectValid && i < DROP_TARGET_COUNT; i++) {
-        if (s_dropRect[i][2] > s_dropRect[i][0] &&
-            tx >= s_dropRect[i][0] - 8.0f && tx <= s_dropRect[i][2] + 8.0f &&
-            ty >= s_dropRect[i][1] - 8.0f && ty <= s_dropRect[i][3] + 8.0f)
-        {
+        if (rectHit(s_dropRect[i], tx, ty, DROP_GRAB)) {
             return i;
         }
     }
@@ -432,10 +429,7 @@ bool handleCollectTouch(f32 tx, f32 ty) {
     // Library icon row (published by the overview draw only): opens that
     // section as a detail view. Back out is the context tab.
     for (int i = 0; i < 4; i++) {
-        if (s_collectIconRects[i][2] > s_collectIconRects[i][0] &&
-            tx >= s_collectIconRects[i][0] && tx <= s_collectIconRects[i][2] &&
-            ty >= s_collectIconRects[i][1] && ty <= s_collectIconRects[i][3])
-        {
+        if (rectHit(s_collectIconRects[i], tx, ty)) {
             s_collectTab.store(i + 1);
             // Grow the section out of the tapped cell.
             for (int r = 0; r < 4; r++) {
@@ -445,12 +439,7 @@ bool handleCollectTouch(f32 tx, f32 ty) {
             s_collectZoomClosing = false;
             // Fresh section: list view, scrolled to the top, selection
             // cleared so the Read tab starts as Back.
-            s_readerSel = -1;
-            s_readerTapCand = -1;
-            s_collectSel = -1;
-            s_scrollSkills = 0.0f;
-            s_scrollMail = 0.0f;
-            s_scrollBody = 0.0f;
+            resetCollectReader();
             queueSound(Z2SE_SY_MENU_CHANGE_WINDOW, HAPTIC_LIGHT);
             return true;
         }
@@ -472,9 +461,7 @@ bool handleCollectTouch(f32 tx, f32 ty) {
     const int ctab = s_collectTab.load();
     if (ctab >= 1 && ctab <= 4) {
         for (int i = 0; i < s_readerRectCount; i++) {
-            if (tx >= s_readerRects[i][0] && tx <= s_readerRects[i][2] &&
-                ty >= s_readerRects[i][1] && ty <= s_readerRects[i][3])
-            {
+            if (rectHit(s_readerRects[i], tx, ty)) {
                 const int id = s_readerRectIds[i];
                 if (id >= 0) {
                     s_readerTapCand = id;
@@ -679,15 +666,9 @@ void handleTouch(f32 w, f32 h) {
         const int slot = s_comboChoiceSlot;
         s_comboChoiceBtn = -1;
         s_comboChoiceSlot = -1;
-        if (s_comboChoiceRects[0][2] > s_comboChoiceRects[0][0] &&
-            tx >= s_comboChoiceRects[0][0] && tx <= s_comboChoiceRects[0][2] &&
-            ty >= s_comboChoiceRects[0][1] && ty <= s_comboChoiceRects[0][3])
-        {
+        if (rectHit(s_comboChoiceRects[0], tx, ty)) {
             tryBowCombo(btn, slot, dComIfGs_getItem(slot, false));
-        } else if (s_comboChoiceRects[1][2] > s_comboChoiceRects[1][0] &&
-            tx >= s_comboChoiceRects[1][0] && tx <= s_comboChoiceRects[1][2] &&
-            ty >= s_comboChoiceRects[1][1] && ty <= s_comboChoiceRects[1][3])
-        {
+        } else if (rectHit(s_comboChoiceRects[1], tx, ty)) {
             plainEquip(btn, slot);
         } else {
             queueSound(Z2SE_SY_CURSOR_CANCEL, HAPTIC_LIGHT);
@@ -724,9 +705,7 @@ void handleTouch(f32 w, f32 h) {
         // are painted in ascending order, so the last drawn is on top. A
         // forward scan returned the row *underneath* the one being touched.
         for (int i = s_dmapFloorRectCount - 1; i >= 0; i--) {
-            if (tx >= s_dmapFloorRects[i][0] && tx <= s_dmapFloorRects[i][2] &&
-                ty >= s_dmapFloorRects[i][1] && ty <= s_dmapFloorRects[i][3])
-            {
+            if (rectHit(s_dmapFloorRects[i], tx, ty)) {
                 s_dmapFloorSel = s_dmapFloorVals[i];
                 s_dmapFloorPickOpen = false;
                 queueSound(Z2SE_SY_CURSOR_OK, HAPTIC_LIGHT);
@@ -743,39 +722,26 @@ void handleTouch(f32 w, f32 h) {
     // longer be paged. The open is deferred to release, next to the swipe
     // test, so a drag pages the column and only a still press opens.
     if (!guideIsOpen() && guideAvailable() &&
-        s_leftBoxPage.load() == LEFT_BOX_GUIDE && s_leftBoxRect[2] > s_leftBoxRect[0] &&
-        tx >= s_leftBoxRect[0] && tx <= s_leftBoxRect[2] && ty >= s_leftBoxRect[1] &&
-        ty <= s_leftBoxRect[3])
+        s_leftBoxPage.load() == LEFT_BOX_GUIDE && rectHit(s_leftBoxRect, tx, ty))
     {
         return;  // consumed; the release decides swipe vs open
     }
     // The reader is modal only over the CONTENT WINDOW: corner buttons, slots,
     // X/Y and the tab strip are all tested above this point and stay live, so
     // the HUD keeps working while a guide is open.
-    if (guideIsOpen() && s_contentRect[2] > s_contentRect[0] &&
-        tx >= s_contentRect[0] && tx <= s_contentRect[2] &&
-        ty >= s_contentRect[1] && ty <= s_contentRect[3])
-    {
+    if (guideIsOpen() && rectHit(s_contentRect, tx, ty)) {
         handleGuideTouch(tx, ty);
         return;
     }
 
     constexpr f32 CORNER_GRACE = 12.0f;
-    if (s_transformBtnRect[2] > s_transformBtnRect[0] &&
-        tx >= s_transformBtnRect[0] - CORNER_GRACE &&
-        tx <= s_transformBtnRect[2] + CORNER_GRACE &&
-        ty >= s_transformBtnRect[1] - CORNER_GRACE &&
-        ty <= s_transformBtnRect[3] + CORNER_GRACE)
-    {
+    if (rectHit(s_transformBtnRect, tx, ty, CORNER_GRACE)) {
         s_pressAnim[4] = 1.0f;
         queueHaptic(HAPTIC_PRESS);
         s_transformReq.store(true);
         return;
     }
-    if (s_zBtnRect[2] > s_zBtnRect[0] && tx >= s_zBtnRect[0] - CORNER_GRACE &&
-        tx <= s_zBtnRect[2] + CORNER_GRACE && ty >= s_zBtnRect[1] - CORNER_GRACE &&
-        ty <= s_zBtnRect[3] + CORNER_GRACE)
-    {
+    if (rectHit(s_zBtnRect, tx, ty, CORNER_GRACE)) {
         s_pressAnim[5] = 1.0f;
         s_zPressReq.store(true);
         queueSound(Z2SE_SY_CURSOR_OK, HAPTIC_PRESS);
@@ -785,10 +751,7 @@ void handleTouch(f32 w, f32 h) {
     // button. Equip-mode taps fall through to the release path, which binds
     // the selection instead. Empty slots still swallow the tap.
     for (int i = 0; i < 2; i++) {
-        if (s_slotBtnRect[i][2] > s_slotBtnRect[i][0] && tx >= s_slotBtnRect[i][0] &&
-            tx <= s_slotBtnRect[i][2] && ty >= s_slotBtnRect[i][1] &&
-            ty <= s_slotBtnRect[i][3])
-        {
+        if (rectHit(s_slotBtnRect[i], tx, ty)) {
             handleSlotTap(i);
             return;
         }
@@ -796,9 +759,7 @@ void handleTouch(f32 w, f32 h) {
     // Round X/Y buttons: tap-to-use (hold semantics; equip-mode taps keep
     // their equip meaning via the release path).
     for (int i = 0; i < 2; i++) {
-        if (s_fnXYRect[i][2] > s_fnXYRect[i][0] && tx >= s_fnXYRect[i][0] &&
-            tx <= s_fnXYRect[i][2] && ty >= s_fnXYRect[i][1] && ty <= s_fnXYRect[i][3])
-        {
+        if (rectHit(s_fnXYRect[i], tx, ty)) {
             handleXYTap(i);
             return;
         }
@@ -806,9 +767,7 @@ void handleTouch(f32 w, f32 h) {
     // Functional left-column context tab (page-independent, like the corners).
     // The draw and this handler both call contextTabAction, so they agree on
     // what the tab does and whether it is live.
-    if (s_ctxTabRect[2] > s_ctxTabRect[0] && tx >= s_ctxTabRect[0] && tx <= s_ctxTabRect[2] &&
-        ty >= s_ctxTabRect[1] && ty <= s_ctxTabRect[3])
-    {
+    if (rectHit(s_ctxTabRect, tx, ty)) {
         bool clickable = false;
         const int action = contextTabAction(&clickable);
         if (!clickable) {
@@ -856,14 +815,9 @@ void handleTouch(f32 w, f32 h) {
             // cell; the dispatch flips the tab to overview when the
             // animation lands. Straight out if there is no recorded cell
             // (page opened by other means, e.g. a wolf slot tap).
-            s_readerSel = -1;
-            s_readerTapCand = -1;
-            s_scrollBody = 0.0f;
+            resetCollectReader();
             s_readerZoomT = 1.0f;
             s_readerZoomClosing = false;
-            s_collectSel = -1;
-            s_scrollSkills = 0.0f;
-            s_scrollMail = 0.0f;
             if (s_collectZoomFrom[2] > s_collectZoomFrom[0]) {
                 s_collectZoomClosing = true;
             } else {
@@ -895,9 +849,7 @@ void handleTouch(f32 w, f32 h) {
     // the Functional MAP plate stands 4px taller than TABS_H, and a band test
     // would drop taps on exactly that crown.
     for (int i = 0; i < s_tabRectCount; i++) {
-        if (tx >= s_tabRects[i][0] && tx <= s_tabRects[i][2] && ty >= s_tabRects[i][1] &&
-            ty <= s_tabRects[i][3])
-        {
+        if (rectHit(s_tabRects[i], tx, ty)) {
             // Silent when the tap lands on the page already showing.
             // Picking a page means "show me that", so the reader gets out of
             // the way — otherwise the tab lights up behind a covered window.
@@ -917,9 +869,7 @@ void handleTouch(f32 w, f32 h) {
         // ITEMS info reader Back button (only published while reading; the
         // Info trigger itself is the left-column context tab now).
         if (s_page.load() == PAGE_INVENTORY && s_itemInfoSlot >= 0 &&
-            s_itemInfoBtnRect[2] > s_itemInfoBtnRect[0] &&
-            tx >= s_itemInfoBtnRect[0] && tx <= s_itemInfoBtnRect[2] &&
-            ty >= s_itemInfoBtnRect[1] && ty <= s_itemInfoBtnRect[3])
+            rectHit(s_itemInfoBtnRect, tx, ty))
         {
             s_readerZoomClosing = true;  // shrinks back into its cell
             return;
@@ -937,9 +887,7 @@ void handleTouch(f32 w, f32 h) {
             // remains here.
             // Ooccoo quick-use. One tap: her own two-choice message is the
             // confirm step (see drawOoccooButton).
-            if (s_ooccooBtnRect[2] > s_ooccooBtnRect[0] && tx >= s_ooccooBtnRect[0] &&
-                tx <= s_ooccooBtnRect[2] && ty >= s_ooccooBtnRect[1] && ty <= s_ooccooBtnRect[3])
-            {
+            if (rectHit(s_ooccooBtnRect, tx, ty)) {
                 requestOoccooQuickUse();
                 return;
             }
@@ -948,9 +896,7 @@ void handleTouch(f32 w, f32 h) {
             // view home; the dungeon's zoom/center ride its existing
             // room-follow glide, re-engaged here WITHOUT s_dmapResetReq —
             // that flag's snap is for stage init, not for this button.
-            if (s_mapResetRect[2] > s_mapResetRect[0] && tx >= s_mapResetRect[0] &&
-                tx <= s_mapResetRect[2] && ty >= s_mapResetRect[1] && ty <= s_mapResetRect[3])
-            {
+            if (rectHit(s_mapResetRect, tx, ty)) {
                 s_mapResetGlide = true;
                 if (s_dmapAvailable) {
                     // The room-fit request IS the "supposed" view — the
@@ -1030,8 +976,7 @@ void processDragTouch(f32 w, f32 h) {
             s_downY = ty;
             s_dragSlot = -1;
             s_leftBoxSwipe = dusk::dualscreen::mainHudRestored() &&
-                s_leftBoxRect[2] > s_leftBoxRect[0] && tx >= s_leftBoxRect[0] &&
-                tx <= s_leftBoxRect[2] && ty >= s_leftBoxRect[1] && ty <= s_leftBoxRect[3];
+                rectHit(s_leftBoxRect, tx, ty);
             if (onItemsPage) {
                 const int cell = invCellIndexAt(tx, ty);
                 if (cell >= 0) {
@@ -1072,9 +1017,7 @@ void processDragTouch(f32 w, f32 h) {
             static int sLastFloorRow = -1;
             int row = -1;
             for (int i = 0; i < s_dmapFloorRectCount; i++) {
-                if (tx >= s_dmapFloorRects[i][0] && tx <= s_dmapFloorRects[i][2] &&
-                    ty >= s_dmapFloorRects[i][1] && ty <= s_dmapFloorRects[i][3])
-                {
+                if (rectHit(s_dmapFloorRects[i], tx, ty)) {
                     row = i;
                     break;
                 }
@@ -1134,9 +1077,7 @@ void processDragTouch(f32 w, f32 h) {
             s_leftBoxPage.store(pages[(idx + step) % count]);
             queueSound(Z2SE_SY_CURSOR_FLOOR, HAPTIC_LIGHT);
         } else if (!guideIsOpen() && guideAvailable() &&
-            s_leftBoxPage.load() == LEFT_BOX_GUIDE &&
-            s_leftBoxRect[2] > s_leftBoxRect[0] && tx >= s_leftBoxRect[0] &&
-            tx <= s_leftBoxRect[2] && ty >= s_leftBoxRect[1] && ty <= s_leftBoxRect[3])
+            s_leftBoxPage.load() == LEFT_BOX_GUIDE && rectHit(s_leftBoxRect, tx, ty))
         {
             // Not a swipe and it ended on the Guide page: open the reader.
             guideOpen();

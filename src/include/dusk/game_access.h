@@ -52,6 +52,10 @@ struct dMeter2DrawAccess : dMeter2Draw_c {
     // Per-frame usability snapshot for X/Y (+ slots), taken by the mod's post-hook on
     // setButtonIconAlpha (the live dMeter2Info bits are reset before the companion draws).
     static bool sItemUsable[4];
+
+private:
+    CPaneMgr* getButtonMgr(int i_which);  // same indexing as getButtonPane
+    void collectVesselPanes(CPaneMgr** o_panes);  // VESSEL_ALPHA_SAVE_COUNT entries
 };
 
 struct dMenuFmapAccess : dMenu_Fmap_c {

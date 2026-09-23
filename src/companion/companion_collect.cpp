@@ -567,53 +567,33 @@ const ResTIMG* msgIconTimg(int idx) {
     return (const ResTIMG*)arc->getResource('TIMG', bti);
 }
 
-// Width of a body segment: text runs measured, icon markers at fixed width.
-f32 bodyTextWidth(const char* s, f32 ts) {
-    f32 w = 0.0f;
+// Walk a body segment: text runs plus inline icon markers (0x02, index + 1)
+// at a fixed width. Draws at (x, y-baseline) when i_draw is set; returns the
+// segment's width either way.
+f32 walkBodyText(const char* s, f32 ts, bool i_draw, f32 x, f32 y, u32 rgba) {
+    const f32 startX = x;
     char run[128];
     int rl = 0;
-    for (const char* p = s; ; p++) {
-        if (*p == 0x02 && p[1] != 0) {
-            if (rl > 0) {
-                run[rl] = 0;
-                w += measureText(ts, run);
-                rl = 0;
-            }
-            w += MSG_ICON_W;
-            p++;
-            continue;
-        }
-        if (*p == 0) {
-            break;
-        }
-        if (rl < 127) {
-            run[rl++] = *p;
-        }
-    }
-    if (rl > 0) {
-        run[rl] = 0;
-        w += measureText(ts, run);
-    }
-    return w;
-}
-
-// Draw a body line at (x, y-baseline): text runs plus inline icons.
-void drawBodyText(f32 x, f32 y, f32 ts, u32 rgba, const char* s) {
-    char run[128];
-    int rl = 0;
-    for (const char* p = s; ; p++) {
-        if (*p == 0x02 && p[1] != 0) {
-            if (rl > 0) {
-                run[rl] = 0;
+    auto flushRun = [&] {
+        if (rl > 0) {
+            run[rl] = 0;
+            if (i_draw) {
                 drawText(x, y, ts, rgba, "%s", run);
-                x += measureText(ts, run);
-                rl = 0;
             }
-            const int idx = (u8)p[1] - 1;
-            const MsgTint tint = msgIconTint(idx);
-            if (const ResTIMG* icon = msgIconTimg(idx)) {
-                drawTimgTinted(icon, x + 1.0f, y - ts - 1.0f, MSG_ICON_W - 2.0f,
-                    MSG_ICON_W - 2.0f, 0xFF, tint.black, tint.white);
+            x += measureText(ts, run);
+            rl = 0;
+        }
+    };
+    for (const char* p = s; ; p++) {
+        if (*p == 0x02 && p[1] != 0) {
+            flushRun();
+            if (i_draw) {
+                const int idx = (u8)p[1] - 1;
+                const MsgTint tint = msgIconTint(idx);
+                if (const ResTIMG* icon = msgIconTimg(idx)) {
+                    drawTimgTinted(icon, x + 1.0f, y - ts - 1.0f, MSG_ICON_W - 2.0f,
+                        MSG_ICON_W - 2.0f, 0xFF, tint.black, tint.white);
+                }
             }
             x += MSG_ICON_W;
             p++;
@@ -626,10 +606,18 @@ void drawBodyText(f32 x, f32 y, f32 ts, u32 rgba, const char* s) {
             run[rl++] = *p;
         }
     }
-    if (rl > 0) {
-        run[rl] = 0;
-        drawText(x, y, ts, rgba, "%s", run);
-    }
+    flushRun();
+    return x - startX;
+}
+
+// Width of a body segment: text runs measured, icon markers at fixed width.
+f32 bodyTextWidth(const char* s, f32 ts) {
+    return walkBodyText(s, ts, false, 0.0f, 0.0f, 0);
+}
+
+// Draw a body line at (x, y-baseline): text runs plus inline icons.
+void drawBodyText(f32 x, f32 y, f32 ts, u32 rgba, const char* s) {
+    walkBodyText(s, ts, true, x, y, rgba);
 }
 
 // Open entry's title/context + word-wrapped body, refilled when the
@@ -910,17 +898,7 @@ void drawSkillsList(f32 x0, f32 y0, f32 x1, f32 y1);
 void drawSkillsContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     if (s_readerSel >= 0) {
         if (readerZoomActive()) {
-            const f32 t = readerZoomProgress();
-            const f32 shrink = 0.06f * t;
-            const f32 ox = (x1 - x0) * shrink * 0.5f;
-            const f32 oy = (y1 - y0) * shrink * 0.5f;
-            // Multiply, never assign: this can run INSIDE a page transition
-            // that is already fading the whole page. Assigning stomped that
-            // outer fade, so the outgoing page stayed opaque and then snapped.
-            const f32 prevA = s_drawAlpha;
-            s_drawAlpha = prevA * (1.0f - t);
-            drawSkillsList(x0 + ox, y0 + oy, x1 - ox, y1 - oy);
-            s_drawAlpha = prevA;
+            drawPoppedDown(readerZoomProgress(), x0, y0, x1, y1, drawSkillsList);
         }
         drawReaderDetail(3, x0, y0, x1, y1);
         return;
@@ -1037,17 +1015,7 @@ void drawLettersList(f32 x0, f32 y0, f32 x1, f32 y1);
 void drawLettersContent(f32 x0, f32 y0, f32 x1, f32 y1) {
     if (s_readerSel >= 0) {
         if (readerZoomActive()) {
-            const f32 t = readerZoomProgress();
-            const f32 shrink = 0.06f * t;
-            const f32 ox = (x1 - x0) * shrink * 0.5f;
-            const f32 oy = (y1 - y0) * shrink * 0.5f;
-            // Multiply, never assign: this can run INSIDE a page transition
-            // that is already fading the whole page. Assigning stomped that
-            // outer fade, so the outgoing page stayed opaque and then snapped.
-            const f32 prevA = s_drawAlpha;
-            s_drawAlpha = prevA * (1.0f - t);
-            drawLettersList(x0 + ox, y0 + oy, x1 - ox, y1 - oy);
-            s_drawAlpha = prevA;
+            drawPoppedDown(readerZoomProgress(), x0, y0, x1, y1, drawLettersList);
         }
         drawReaderDetail(4, x0, y0, x1, y1);
         return;
@@ -1290,14 +1258,7 @@ void drawCollectionContent(f32 x0, f32 y0, f32 x1, f32 y1) {
         // visibly comes out of (and returns into) the tapped cell — and it
         // POPS DOWN as it goes: it shrinks slightly and fades, instead of
         // sitting there at full strength while something grows over it.
-        const f32 prevA = s_drawAlpha;
-        const f32 outT = 1.0f - s_collectZoomT;
-        const f32 shrink = 0.06f * s_collectZoomT;  // 0 -> 6% in
-        const f32 ow = (x1 - x0) * shrink * 0.5f;
-        const f32 oh = (y1 - y0) * shrink * 0.5f;
-        s_drawAlpha = prevA * (outT < 0.0f ? 0.0f : outT);
-        drawCollectOverview(x0 + ow, y0 + 4.0f + oh, x1 - ow, y1 - oh);
-        s_drawAlpha = prevA;
+        drawPoppedDown(s_collectZoomT, x0, y0 + 4.0f, x1, y1, drawCollectOverview);
         const f32 t = s_collectZoomT;
         ax0 = s_collectZoomFrom[0] + (x0 - s_collectZoomFrom[0]) * t;
         ay0 = s_collectZoomFrom[1] + (y0 - s_collectZoomFrom[1]) * t;
@@ -1306,7 +1267,7 @@ void drawCollectionContent(f32 x0, f32 y0, f32 x1, f32 y1) {
         // No panel fill while it travels — that extra background sliding over
         // the overview is exactly what this transition should not add. The
         // section FADES in over the overview instead.
-        s_drawAlpha = prevA * t;
+        s_drawAlpha = outerA * t;
     }
     switch (view) {
     case 1:

@@ -335,10 +335,16 @@ extern f32 s_dropRect[DROP_TARGET_COUNT][4];  // x0, y0, x1, y1
 // highlight used 6.0f against dropTargetAt's 8.0f, leaving a 2px band around
 // every target where a drop silently succeeded with no gold feedback.
 constexpr f32 DROP_GRAB = 8.0f;
+
+// Hit test for the published {x0, y0, x1, y1} touch rects. A rect that was not
+// published (x1 <= x0) never hits; margin grows the rect on every side.
+inline bool rectHit(const f32* r, f32 x, f32 y, f32 margin = 0.0f) {
+    return r[2] > r[0] && x >= r[0] - margin && x <= r[2] + margin && y >= r[1] - margin &&
+        y <= r[3] + margin;
+}
+
 inline bool dragOverDropRect(int i) {
-    return s_dragging && s_dropRect[i][2] > s_dropRect[i][0] &&
-        s_dragX >= s_dropRect[i][0] - DROP_GRAB && s_dragX <= s_dropRect[i][2] + DROP_GRAB &&
-        s_dragY >= s_dropRect[i][1] - DROP_GRAB && s_dragY <= s_dropRect[i][3] + DROP_GRAB;
+    return s_dragging && rectHit(s_dropRect[i], s_dragX, s_dragY, DROP_GRAB);
 }
 
 // Wolf/human quick-transform button above the d-pad. Rect published by the
@@ -632,6 +638,8 @@ extern int s_readerRectIds[12];
 extern f32 s_scrollSkills;
 extern f32 s_scrollMail;
 extern f32 s_scrollBody;
+// Clears the entry, selection and scroll state above (not the tab or zooms).
+void resetCollectReader();
 
 // ITEMS item-info view: slot being read (-1 = grid), plus the Info/Back
 // button rect (w == 0 when hidden). The reader body helpers below render
@@ -842,6 +850,10 @@ extern f32 s_drawAlpha;
 // pop rather than fade.
 u8 mulDrawAlpha(u8 a);
 GXColor mulDrawAlpha(GXColor c);
+// The view being replaced while a detail view travels over it: drawn shrunk
+// up to 6% and faded out as t goes 0 -> 1, so it POPS DOWN instead of
+// vanishing the instant the detail opens.
+void drawPoppedDown(f32 t, f32 x0, f32 y0, f32 x1, f32 y1, void (*draw)(f32, f32, f32, f32));
 // Chamfered rectangle: 45-degree corner cuts of size ch on the corners
 // selected by cornerMask (1 = TL, 2 = TR, 4 = BR, 8 = BL; 0xF = all).
 void fillChamferVGrad(f32 x0, f32 y0, f32 x1, f32 y1, f32 ch, GXColor top, GXColor bot,

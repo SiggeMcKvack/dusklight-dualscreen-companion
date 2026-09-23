@@ -1322,18 +1322,15 @@ bool handleGuideTouch(f32 tx, f32 ty) {
     if (!s_guideOpen) {
         return false;
     }
-    auto hit = [&](const f32* r) {
-        return r[2] > r[0] && tx >= r[0] && tx <= r[2] && ty >= r[1] && ty <= r[3];
-    };
-    if (hit(s_guideListRect)) {
+    if (rectHit(s_guideListRect, tx, ty)) {
         guideBack();
         return true;
     }
-    if (hit(s_guidePrevRect)) {
+    if (rectHit(s_guidePrevRect, tx, ty)) {
         guideStep(-1);
         return true;
     }
-    if (hit(s_guideNextRect)) {
+    if (rectHit(s_guideNextRect, tx, ty)) {
         guideStep(1);
         return true;
     }
@@ -1343,9 +1340,7 @@ bool handleGuideTouch(f32 tx, f32 ty) {
         // row scrolls the list instead of opening it. Scanned backwards
         // because rows are painted top-down and the last drawn wins.
         for (int i = s_readerRectCount - 1; i >= 0; i--) {
-            if (tx >= s_readerRects[i][0] && tx <= s_readerRects[i][2] &&
-                ty >= s_readerRects[i][1] && ty <= s_readerRects[i][3])
-            {
+            if (rectHit(s_readerRects[i], tx, ty)) {
                 // Only the id is needed; s_readerTapRect drives the collect
                 // page's zoom-open, which the guide does not use.
                 s_readerTapCand = s_readerRectIds[i];

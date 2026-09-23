@@ -113,17 +113,18 @@ bool s_collectIconValid[CLCT_ICON_COUNT];
 alignas(32) u8 s_rawIconBuf[1][0x2800];
 int s_rawIconIdx[1] = {-1};
 
-}  // namespace
-
-void drawItemIcon(int slot, u8 itemNo, f32 x, f32 y, f32 size, u8 alpha) {
+// Loads the item's icon layers and aspect-fits them centred in the size box
+// at (x, y). Returns the layer count, <= 0 when there is nothing to draw.
+int fitItemIcon(int slot, u8 itemNo, f32 x, f32 y, f32 size, f32* o_x, f32* o_y, f32* o_w,
+    f32* o_h) {
     const int layers = updateItemPics(slot, itemNo);
     if (layers <= 0) {
-        return;
+        return 0;
     }
     const ResTIMG* timg = s_itemPic[slot][0]->getTexture(0) != NULL
         ? s_itemPic[slot][0]->getTexture(0)->getTexInfo() : NULL;
     if (timg == NULL || timg->width == 0 || timg->height == 0) {
-        return;
+        return 0;
     }
     f32 w = size;
     f32 h = size * (f32)timg->height / (f32)timg->width;
@@ -131,8 +132,21 @@ void drawItemIcon(int slot, u8 itemNo, f32 x, f32 y, f32 size, u8 alpha) {
         h = size;
         w = size * (f32)timg->width / (f32)timg->height;
     }
-    const f32 dx = x + (size - w) * 0.5f;
-    const f32 dy = y + (size - h) * 0.5f;
+    *o_x = x + (size - w) * 0.5f;
+    *o_y = y + (size - h) * 0.5f;
+    *o_w = w;
+    *o_h = h;
+    return layers;
+}
+
+}  // namespace
+
+void drawItemIcon(int slot, u8 itemNo, f32 x, f32 y, f32 size, u8 alpha) {
+    f32 dx, dy, w, h;
+    const int layers = fitItemIcon(slot, itemNo, x, y, size, &dx, &dy, &w, &h);
+    if (layers <= 0) {
+        return;
+    }
     for (int i = 0; i < layers && i < 2; i++) {
         s_itemPic[slot][i]->setAlpha(mulDrawAlpha(alpha));
         s_itemPic[slot][i]->draw(dx, dy, w, h, false, false, false);
@@ -145,23 +159,11 @@ void drawItemIcon(int slot, u8 itemNo, f32 x, f32 y, f32 size, u8 alpha) {
 // the real icon it forms a colored border/glow. Preserves each layer's own
 // tint colors around the draw.
 void drawItemIconSilhouette(int slot, u8 itemNo, f32 x, f32 y, f32 size, u32 rgba) {
-    const int layers = updateItemPics(slot, itemNo);
+    f32 dx, dy, w, h;
+    const int layers = fitItemIcon(slot, itemNo, x, y, size, &dx, &dy, &w, &h);
     if (layers <= 0) {
         return;
     }
-    const ResTIMG* timg = s_itemPic[slot][0]->getTexture(0) != NULL
-        ? s_itemPic[slot][0]->getTexture(0)->getTexInfo() : NULL;
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
-        return;
-    }
-    f32 w = size;
-    f32 h = size * (f32)timg->height / (f32)timg->width;
-    if (h > size) {
-        h = size;
-        w = size * (f32)timg->width / (f32)timg->height;
-    }
-    const f32 dx = x + (size - w) * 0.5f;
-    const f32 dy = y + (size - h) * 0.5f;
     for (int i = 0; i < layers && i < 2; i++) {
         J2DPicture* pic = s_itemPic[slot][i];
         const JUtility::TColor black = pic->getBlack();

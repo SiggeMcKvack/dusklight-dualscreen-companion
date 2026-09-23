@@ -1526,17 +1526,13 @@ void drawInventoryContent(f32 x0, f32 y0, f32 x1, f32 y1) {
         // while they are a backdrop (pushReaderRect guards the readers the
         // same way).
         if (readerZoomActive()) {
-            const f32 t = readerZoomProgress();
-            const f32 shrink = 0.06f * t;
-            const f32 ox = (x1 - x0) * shrink * 0.5f;
-            const f32 oy = (y1 - y0) * shrink * 0.5f;
-            const f32 prevA = s_drawAlpha;
-            s_drawAlpha = prevA * (1.0f - t);
-            const InvGrid under = computeInvGrid(x0 + ox, y0 + oy, x1 - ox, y1 - oy);
-            for (int i = 0; i < INV_CELLS; i++) {
-                drawInvCell(under, i);
-            }
-            s_drawAlpha = prevA;
+            drawPoppedDown(readerZoomProgress(), x0, y0, x1, y1,
+                [](f32 gx0, f32 gy0, f32 gx1, f32 gy1) {
+                    const InvGrid under = computeInvGrid(gx0, gy0, gx1, gy1);
+                    for (int i = 0; i < INV_CELLS; i++) {
+                        drawInvCell(under, i);
+                    }
+                });
         }
         s_invGeomValid = false;
         drawItemInfo(x0, y0, x1, y1);

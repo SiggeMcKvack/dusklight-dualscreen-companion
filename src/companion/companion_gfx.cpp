@@ -38,6 +38,24 @@ namespace {
 J2DPicture* s_iconPic;
 const ResTIMG* s_lastTimg;
 
+// The shared picture, retextured to timg; NULL when timg is empty or the
+// picture cannot be created.
+J2DPicture* bindIconPic(const ResTIMG* timg) {
+    if (timg == NULL || timg->width == 0 || timg->height == 0) {
+        return NULL;
+    }
+    if (s_iconPic == NULL) {
+        s_iconPic = createPicture(timg);
+        s_lastTimg = timg;
+        return s_iconPic;
+    }
+    if (timg != s_lastTimg) {
+        s_iconPic->changeTexture(timg, 0);
+        s_lastTimg = timg;
+    }
+    return s_iconPic;
+}
+
 // Composite every textured layer of a HUD pane subtree (button base, ring,
 // gloss, letter) into a box, preserving each layer's relative geometry and
 // tint — this is what makes the buttons look like the real HUD buttons.
@@ -67,6 +85,19 @@ GXColor mulDrawAlpha(GXColor c) {
     return c;
 }
 
+void drawPoppedDown(f32 t, f32 x0, f32 y0, f32 x1, f32 y1, void (*draw)(f32, f32, f32, f32)) {
+    const f32 shrink = 0.06f * t;
+    const f32 ox = (x1 - x0) * shrink * 0.5f;
+    const f32 oy = (y1 - y0) * shrink * 0.5f;
+    // Multiply, never assign: this can run INSIDE a page transition that is
+    // already fading the whole page. Assigning stomped that outer fade, so the
+    // outgoing page stayed opaque and then snapped.
+    const f32 prevA = s_drawAlpha;
+    s_drawAlpha = prevA * (t < 1.0f ? 1.0f - t : 0.0f);
+    draw(x0 + ox, y0 + oy, x1 - ox, y1 - oy);
+    s_drawAlpha = prevA;
+}
+
 namespace {
 
 u32 mulDrawAlphaRgba(u32 rgba) {
@@ -77,20 +108,8 @@ void drawCompositeLayer(J2DPicture* src, f32 dx, f32 dy, f32 dw, f32 dh, u8 minA
     if (src->getTexture(0) == NULL) {
         return;
     }
-    const ResTIMG* timg = src->getTexture(0)->getTexInfo();
-    if (timg == NULL) {
+    if (bindIconPic(src->getTexture(0)->getTexInfo()) == NULL) {
         return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) {
-            return;
-        }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
     }
     s_iconPic->setBlackWhite(src->getBlack(), src->getWhite());
     s_iconPic->setCornerColor(JUtility::TColor(ga::cast(src)->getCornerColorRaw(0)),
@@ -866,17 +885,8 @@ void gfxForgetTimgLatch() {
 }
 
 void drawTimg(const ResTIMG* timg, f32 x, f32 y, f32 w, f32 h, u8 alpha) {
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
+    if (bindIconPic(timg) == NULL) {
         return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) { return; }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
     }
     s_iconPic->setAlpha(mulDrawAlpha(alpha));
     s_iconPic->draw(x, y, w, h, false, false, false);
@@ -888,19 +898,8 @@ void drawTimg(const ResTIMG* timg, f32 x, f32 y, f32 w, f32 h, u8 alpha) {
 // pane-rotate + immediate-draw pattern the pause map uses for its arrow.
 void drawTimgRotatedRect(const ResTIMG* timg, f32 cx, f32 cy, f32 w, f32 h, f32 angleDeg,
     u8 alpha) {
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
+    if (bindIconPic(timg) == NULL) {
         return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) {
-            return;
-        }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
     }
     s_iconPic->rotate(w * 0.5f, h * 0.5f, ROTATE_Z, angleDeg);
     s_iconPic->setAlpha(mulDrawAlpha(alpha));
@@ -911,24 +910,7 @@ void drawTimgRotatedRect(const ResTIMG* timg, f32 cx, f32 cy, f32 w, f32 h, f32 
 }
 
 void drawTimgRotated(const ResTIMG* timg, f32 cx, f32 cy, f32 size, f32 angleDeg, u8 alpha) {
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
-        return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) { return; }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
-    }
-    s_iconPic->rotate(size * 0.5f, size * 0.5f, ROTATE_Z, angleDeg);
-    s_iconPic->setAlpha(mulDrawAlpha(alpha));
-    s_iconPic->draw(cx - size * 0.5f, cy - size * 0.5f, size, size, false, false, false);
-    s_iconPic->setAlpha(0xFF);
-    s_iconPic->rotate(0.0f);
-    dComIfGp_getCurrentGrafPort()->setup2D();
+    drawTimgRotatedRect(timg, cx, cy, size, size, angleDeg, alpha);
 }
 
 // Union of all layer bounds.
@@ -978,19 +960,8 @@ void markPlateLayers(const PaneLayer* layers, int count, bool* skip) {
 // picture's TEV color pair, exactly how the game's own layouts color them.
 void drawTimgTintedMirror(const ResTIMG* timg, f32 x, f32 y, f32 w, f32 h, u8 alpha,
     u32 blackRgba, u32 whiteRgba, bool mirrorX, bool mirrorY) {
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
+    if (bindIconPic(timg) == NULL) {
         return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) {
-            return;
-        }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
     }
     s_iconPic->setBlackWhite(JUtility::TColor(blackRgba), JUtility::TColor(whiteRgba));
     s_iconPic->setAlpha(mulDrawAlpha(alpha));
@@ -1002,24 +973,7 @@ void drawTimgTintedMirror(const ResTIMG* timg, f32 x, f32 y, f32 w, f32 h, u8 al
 
 void drawTimgTinted(const ResTIMG* timg, f32 x, f32 y, f32 w, f32 h, u8 alpha, u32 blackRgba,
     u32 whiteRgba) {
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
-        return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) { return; }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
-    }
-    s_iconPic->setBlackWhite(JUtility::TColor(blackRgba), JUtility::TColor(whiteRgba));
-    s_iconPic->setAlpha(mulDrawAlpha(alpha));
-    s_iconPic->draw(x, y, w, h, false, false, false);
-    s_iconPic->setBlackWhite(JUtility::TColor(0x00000000u), JUtility::TColor(0xFFFFFFFFu));
-    s_iconPic->setAlpha(0xFF);
-    dComIfGp_getCurrentGrafPort()->setup2D();
+    drawTimgTintedMirror(timg, x, y, w, h, alpha, blackRgba, whiteRgba, false, false);
 }
 
 void drawMenuBox(f32 x0, f32 y0, f32 x1, f32 y1, u32 fillRgba) {
@@ -1144,12 +1098,6 @@ void drawPaneComposite(J2DPane* root, f32 x, f32 y, f32 boxW, f32 boxH, u8 minAl
     if (srcW <= 0.0f || srcH <= 0.0f) {
         return;
     }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(layers[0].pic->getTexture(0)->getTexInfo());
-        if (s_iconPic == NULL) {
-            return;
-        }
-    }
     const f32 scale = boxW / srcW < boxH / srcH ? boxW / srcW : boxH / srcH;
     const f32 dstX = alignRight ? x + boxW - srcW * scale : x + (boxW - srcW * scale) * 0.5f;
     const f32 dstY = y + (boxH - srcH * scale) * 0.5f;
@@ -1182,28 +1130,10 @@ void drawPaneComposite(J2DPane* root, f32 x, f32 y, f32 boxW, f32 boxH, u8 minAl
                 minAlpha);
             continue;
         }
-        const ResTIMG* timg = src->getTexture(0)->getTexInfo();
-        if (timg == NULL) {
-            continue;
-        }
-        if (timg != s_lastTimg) { s_iconPic->changeTexture(timg, 0); s_lastTimg = timg; }
-        s_iconPic->setBlackWhite(src->getBlack(), src->getWhite());
-        s_iconPic->setCornerColor(JUtility::TColor(ga::cast(src)->getCornerColorRaw(0)),
-            JUtility::TColor(ga::cast(src)->getCornerColorRaw(1)),
-            JUtility::TColor(ga::cast(src)->getCornerColorRaw(2)),
-            JUtility::TColor(ga::cast(src)->getCornerColorRaw(3)));
-        u8 layerAlpha = src->getAlpha();
-        if (layerAlpha < minAlpha) {
-            layerAlpha = minAlpha;
-        }
-        s_iconPic->setAlpha(mulDrawAlpha(layerAlpha));
-        s_iconPic->draw(dstX + (layers[i].x0 - minX) * scale,
+        drawCompositeLayer(src, dstX + (layers[i].x0 - minX) * scale,
             dstY + (layers[i].y0 - minY) * scale, (layers[i].x1 - layers[i].x0) * scale,
-            (layers[i].y1 - layers[i].y0) * scale, false, false, false);
+            (layers[i].y1 - layers[i].y0) * scale, minAlpha);
     }
-    s_iconPic->setBlackWhite(JUtility::TColor(0x00000000u), JUtility::TColor(0xFFFFFFFFu));
-    s_iconPic->setCornerColor(JUtility::TColor(0xFFFFFFFFu));
-    s_iconPic->setAlpha(0xFF);
     dComIfGp_getCurrentGrafPort()->setup2D();
 }
 
@@ -1216,19 +1146,8 @@ void drawButtonCircleBase(dMeter2Draw_c* md, int xyIdx, f32 x, f32 y, f32 box) {
         return;
     }
     const ResTIMG* timg = circle->getTexture(0)->getTexInfo();
-    if (timg == NULL || timg->width == 0 || timg->height == 0) {
+    if (bindIconPic(timg) == NULL) {
         return;
-    }
-    if (s_iconPic == NULL) {
-        s_iconPic = createPicture(timg);
-        s_lastTimg = timg;
-        if (s_iconPic == NULL) {
-            return;
-        }
-    }
-    if (timg != s_lastTimg) {
-        s_iconPic->changeTexture(timg, 0);
-        s_lastTimg = timg;
     }
     f32 w = box;
     f32 h = box * (f32)timg->height / (f32)timg->width;

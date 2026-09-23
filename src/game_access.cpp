@@ -82,27 +82,26 @@ static J2DPicture* findBestPicture(CPaneMgr* i_mgr) {
 // hooks consumed by src/dusk/companion*.cpp. Everything up to initLife().
 // ---------------------------------------------------------------------------
 
+// Button pane managers: 0=A 1=B 2=X 3=Y 4=Z, NULL otherwise.
+CPaneMgr* dMeter2DrawAccess::getButtonMgr(int i_which) {
+    switch (i_which) {
+    case 0:
+        return mpButtonA;
+    case 1:
+        return mpButtonB;
+    case 2:
+    case 3:
+    case 4:
+        return mpButtonXY[i_which - 2];
+    default:
+        return NULL;
+    }
+}
+
 // Whole button pane subtrees (0=A 1=B 2=X 3=Y), for layer-composited
 // rendering on the companion.
 J2DPane* dMeter2DrawAccess::getButtonPane(int i_which) {
-    CPaneMgr* mgr = NULL;
-    switch (i_which) {
-    case 0:
-        mgr = mpButtonA;
-        break;
-    case 1:
-        mgr = mpButtonB;
-        break;
-    case 2:
-        mgr = mpButtonXY[0];
-        break;
-    case 3:
-        mgr = mpButtonXY[1];
-        break;
-    case 4:
-        mgr = mpButtonXY[2];
-        break;
-    }
+    CPaneMgr* mgr = getButtonMgr(i_which);
     return mgr != NULL ? mgr->getPanePtr() : NULL;
 }
 
@@ -110,25 +109,7 @@ J2DPane* dMeter2DrawAccess::getButtonPane(int i_which) {
 // Returned as pictures so the caller can reuse their tint colors: the button
 // graphics are intensity textures colored by the pane's black/white TEV.
 J2DPicture* dMeter2DrawAccess::getButtonBasePicture(int i_which) {
-    CPaneMgr* mgr = NULL;
-    switch (i_which) {
-    case 0:
-        mgr = mpButtonA;
-        break;
-    case 1:
-        mgr = mpButtonB;
-        break;
-    case 2:
-        mgr = mpButtonXY[0];
-        break;
-    case 3:
-        mgr = mpButtonXY[1];
-        break;
-    case 4:
-        mgr = mpButtonXY[2];
-        break;
-    }
-    return findBestPicture(mgr);
+    return findBestPicture(getButtonMgr(i_which));
 }
 
 // Current A action word ("Speak", "Blow", ...); the mpAText panes are real
@@ -354,18 +335,24 @@ void dMeter2DrawAccess::refreshVesselForCompanion() {
                   g_drawHIO.mLightDrop.mVesselAlpha[0], 0);
 }
 
-void dMeter2DrawAccess::pushVesselStateForCompanion(f32* o_alpha, f32* o_x, f32* o_y,
-    f32* o_scale) {
-    CPaneMgr* panes[VESSEL_ALPHA_SAVE_COUNT];
-    panes[0] = mpLightDropParent;
+// The vessel panes whose state the companion saves and restores: the parent,
+// the two tear-count parents, then the 16 tears' two parts each.
+void dMeter2DrawAccess::collectVesselPanes(CPaneMgr** o_panes) {
+    o_panes[0] = mpLightDropParent;
     for (int i = 0; i < 2; i++) {
-        panes[1 + i] = mpSIParent[i];
+        o_panes[1 + i] = mpSIParent[i];
     }
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 2; j++) {
-            panes[3 + i * 2 + j] = mpSIParts[i][j + 1];
+            o_panes[3 + i * 2 + j] = mpSIParts[i][j + 1];
         }
     }
+}
+
+void dMeter2DrawAccess::pushVesselStateForCompanion(f32* o_alpha, f32* o_x, f32* o_y,
+    f32* o_scale) {
+    CPaneMgr* panes[VESSEL_ALPHA_SAVE_COUNT];
+    collectVesselPanes(panes);
     for (int k = 0; k < VESSEL_ALPHA_SAVE_COUNT; k++) {
         if (panes[k] != NULL) {
             o_alpha[k] = panes[k]->getAlphaRate();
@@ -386,15 +373,7 @@ void dMeter2DrawAccess::pushVesselStateForCompanion(f32* o_alpha, f32* o_x, f32*
 void dMeter2DrawAccess::popVesselStateForCompanion(const f32* i_alpha, const f32* i_x,
     const f32* i_y, const f32* i_scale) {
     CPaneMgr* panes[VESSEL_ALPHA_SAVE_COUNT];
-    panes[0] = mpLightDropParent;
-    for (int i = 0; i < 2; i++) {
-        panes[1 + i] = mpSIParent[i];
-    }
-    for (int i = 0; i < 16; i++) {
-        for (int j = 0; j < 2; j++) {
-            panes[3 + i * 2 + j] = mpSIParts[i][j + 1];
-        }
-    }
+    collectVesselPanes(panes);
     for (int k = 0; k < VESSEL_ALPHA_SAVE_COUNT; k++) {
         if (panes[k] != NULL) {
             panes[k]->setAlphaRate(i_alpha[k]);

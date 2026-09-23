@@ -1098,6 +1098,18 @@ void tickGaugeWarning() {
     }
 }
 
+// COLLECT section back to its list view: no entry open, no selection,
+// every list scrolled to the top. Callers handle the tab and zoom fields,
+// which differ per exit.
+void resetCollectReader() {
+    s_readerSel = -1;
+    s_readerTapCand = -1;
+    s_scrollBody = 0.0f;
+    s_collectSel = -1;
+    s_scrollSkills = 0.0f;
+    s_scrollMail = 0.0f;
+}
+
 // Damage cancels any open reader/detail view.
 void cancelReadersOnDamage() {
     // Taking a hit yanks the COLLECT page out of any reader/detail view:
@@ -1111,13 +1123,8 @@ void cancelReadersOnDamage() {
         if (tookHit && s_page.load() == PAGE_COLLECTION &&
             (s_collectTab.load() != 0 || s_readerSel >= 0))
         {
-            s_readerSel = -1;
-            s_readerTapCand = -1;
-            s_scrollBody = 0.0f;
+            resetCollectReader();
             s_collectTab.store(0);
-            s_collectSel = -1;
-            s_scrollSkills = 0.0f;
-            s_scrollMail = 0.0f;
             s_collectZoomT = 1.0f;
             s_collectZoomClosing = false;
         }
@@ -1144,13 +1151,8 @@ void resetCompanionOnLeaveGameplay() {
     static bool sPrevLeft = false;
     const bool left = dualscreen::leftGameplay();
     if (left && !sPrevLeft) {  // rising edge only
-        s_readerSel = -1;
-        s_readerTapCand = -1;
-        s_scrollBody = 0.0f;
+        resetCollectReader();
         s_collectTab.store(0);
-        s_collectSel = -1;
-        s_scrollSkills = 0.0f;
-        s_scrollMail = 0.0f;
         s_collectZoomT = 1.0f;
         s_collectZoomClosing = false;
         s_collectZoomFrom[0] = 0.0f;

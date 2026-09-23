@@ -31,10 +31,6 @@ void setSurfaceSize(uint32_t width, uint32_t height);
 // Drop the retained last frame (mod shutdown).
 void shutdown();
 
-// Fork API: mirrored the Swap Screens setting into Android SharedPreferences
-// for the launcher. The swap-screens mirror is not ported, so this is a no-op.
-void publishSwapPreference(bool swapped);
-
 // True when the HUD actually lives on the second screen this frame: the
 // setting is on AND a physical second display exists. Game-side gates must
 // use this (never the raw setting) so single-screen devices keep their HUD.

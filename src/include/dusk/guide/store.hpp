@@ -86,12 +86,6 @@ std::string import_html_content(const std::string& html, const std::string& sour
 std::string import_html_file(const std::filesystem::path& file, const std::string& sourceUrl,
     const ImageSource& netFallback = {});
 
-// No-op in the mod: the host owns the data directory.
-void migrate_store_if_needed();
-
-// Declared for parity with the fork; not defined or used in the mod.
-bool migrate_store_dir(const std::filesystem::path& from, const std::filesystem::path& to);
-
 // Leading "13.1" of a numbered section title, empty when it has none. The one
 // definition of what "numbered" means: the store names that section's images
 // with it, and the reader orders chapters by it, and those two must not drift.

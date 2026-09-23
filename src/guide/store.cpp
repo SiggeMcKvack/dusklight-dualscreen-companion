@@ -141,8 +141,6 @@ std::filesystem::path guides_root() {
     return s_guidesRoot;
 }
 
-void migrate_store_if_needed() {}
-
 std::filesystem::path import_dir() {
     return guides_root() / "import";
 }
@@ -588,8 +586,6 @@ int scan_import_folder(const ImageSource& netFallback) {
         }
         return ext == ".html" || ext == ".htm";
     };
-
-    migrate_store_if_needed();
 
     // Converter moved on: bring the archived sources back through it, so a
     // parser fix reaches existing guides instead of only new ones.

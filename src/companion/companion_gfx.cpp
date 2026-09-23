@@ -629,19 +629,8 @@ void toUpperLatin1(char* s) {
 // An archive string in whatever language the game is running, interned by
 // message ID so callers need no static buffer of their own and the .bmg (a
 // linear scan per lookup) is not rescanned every frame. Use it for content the
-// game names (item names); use archiveLabel/localizedWord for UI labels,
-// where English keeps the dashboard's own wording.
-const char* archiveText(u32 msgId, const char* fallback, bool upper);
-
-// A UI LABEL that also exists in the archive. English keeps the dashboard's
-// own (terser) wording; every other language takes the game's.
-const char* archiveLabel(u32 msgId, const char* english, bool upper) {
-    if (OSGetLanguage() == OS_LANGUAGE_ENGLISH) {
-        return english;
-    }
-    return archiveText(msgId, english, upper);
-}
-
+// game names (item names); use localizedWord for UI labels, where English
+// keeps the dashboard's own wording.
 const char* archiveText(u32 msgId, const char* fallback, bool upper) {
     if (msgId == 0) {
         return fallback;
@@ -710,6 +699,8 @@ enum { WORD_CACHE_MAX = 64, FETCH_TRIES = 8, RETRY_GAP = 20 };
     return l_text[slot];
 }
 
+// A UI LABEL that also exists in the archive. English keeps the dashboard's
+// own (terser) wording; every other language takes the game's.
 const char* localizedWord(u32 msgId, const char* english, bool upper) {
     if (OSGetLanguage() == OS_LANGUAGE_ENGLISH) {
         return english;

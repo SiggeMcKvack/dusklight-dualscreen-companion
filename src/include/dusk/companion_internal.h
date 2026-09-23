@@ -882,10 +882,9 @@ void drawText(f32 x, f32 y, f32 size, u32 rgba, const char* fmt, ...);
 f32 measureText(f32 size, const char* text);
 void drawTextCentered(f32 cx, f32 y, f32 size, u32 rgba, const char* text);
 void toUpperLatin1(char* s);
+// UI label: English keeps the dashboard's wording, others take the archive.
 const char* localizedWord(u32 msgId, const char* english, bool upper = false);
 const char* archiveText(u32 msgId, const char* fallback, bool upper = false);
-// UI label: English keeps the dashboard's wording, others take the archive.
-const char* archiveLabel(u32 msgId, const char* english, bool upper = false);
 f32 fittedTextSize(f32 size, f32 minSize, f32 maxW, const char* text);
 void drawTextEllipsized(f32 x, f32 y, f32 size, f32 maxW, u32 rgba, const char* text);
 int fitPrefix(f32 size, f32 maxW, const char* text);

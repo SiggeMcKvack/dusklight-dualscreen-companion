@@ -183,10 +183,6 @@ void beginHudCapture() {
             s_lowLifeLatch = false;
         }
     }
-
-    if (enabled) {
-        companion::update();
-    }
 }
 
 void endHudCapture() {
@@ -303,7 +299,5 @@ void shutdown() {
     s_everPresented = false;
     s_active = false;
 }
-
-void publishSwapPreference(bool) {}
 
 }  // namespace dusk::dualscreen

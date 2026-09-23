@@ -376,9 +376,9 @@ void drawCollectFish(f32 x0, f32 y0, f32 x1) {
     const f32 headY = y0 + rodIcon + 28.0f;
     drawText(colName, headY, 13.0f, TEXT_DIM, "%s", txt(STR_SPECIES));
     drawText(colCaught, headY, 13.0f, TEXT_DIM, "%s",
-        archiveLabel(0x5A0, "Caught"));  // DE/FR/... = "No. Caught"
+        localizedWord(0x5A0, "Caught"));  // DE/FR/... = "No. Caught"
     drawText(colRecord, headY, 13.0f, TEXT_DIM, "%s",
-        archiveLabel(0x59F, "Record"));  // DE/FR/... = "Largest"
+        localizedWord(0x59F, "Record"));  // DE/FR/... = "Largest"
     // The game reports the record in inches for English and centimetres for
     // every other language (d_menu_fishing.cpp:152); match it.
     const bool inches = dusk::version::isRegionPal() &&

@@ -2,9 +2,6 @@
 
 namespace dusk::companion {
 
-// Per-frame hook, called on the game thread while the dual-screen capture is
-// active. Currently a no-op (the fork's ImGui debug keys are not ported).
-void update();
 bool hudReady();
 void setNativeCanvas(unsigned width, unsigned height, float scale);
 void applyNativeViewport();

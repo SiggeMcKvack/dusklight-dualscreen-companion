@@ -587,10 +587,6 @@ void resetDim() {
     s_dim.clearFrames = 0;
 }
 
-void update() {
-    // No per-frame work: the fork's ImGui debug keys (page cycle, screenshot) are not ported.
-}
-
 int visiblePages(int* o_pages) {
     // Functional mirrors the reference layout: three tabs with the map in the
     // middle. GUIDE has no tab there — Functional opens the reader from the
